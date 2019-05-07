@@ -21,10 +21,22 @@ func main() {
 		pass = flag.String("pass", "123456", "Password for login")
 		port = flag.Int("port", 2121, "Port")
 		host = flag.String("host", "localhost", "Port")
+		key  = flag.String("key", "", "Path to private key for TLS")
+		cert = flag.String("cert", "", "Path to certificate for TLS")
 	)
 	flag.Parse()
+	messageAboutMissingParameters := ""
 	if *root == "" {
-		log.Fatalf("Please set a root to serve with -root")
+		messageAboutMissingParameters = messageAboutMissingParameters + "Please set a root to serve with -root\n"
+	}
+	if *key == "" {
+		messageAboutMissingParameters = messageAboutMissingParameters + "Please set a keyfile for tls with -key\n"
+	}
+	if *cert == "" {
+		messageAboutMissingParameters = messageAboutMissingParameters + "Please set a certificatefile for tls with -cert\n"
+	}
+	if messageAboutMissingParameters != "" {
+		log.Fatalf(messageAboutMissingParameters)
 	}
 
 	factory := &filedriver.FileDriverFactory{
@@ -33,10 +45,14 @@ func main() {
 	}
 
 	opts := &server.ServerOpts{
-		Factory:  factory,
-		Port:     *port,
-		Hostname: *host,
-		Auth:     &server.SimpleAuth{Name: *user, Password: *pass},
+		Factory:      factory,
+		Port:         *port,
+		Hostname:     *host,
+		Auth:         &server.SimpleAuth{Name: *user, Password: *pass},
+		TLS:          true,
+		KeyFile:      *key,
+		CertFile:     *cert,
+		ExplicitFTPS: true,
 	}
 
 	log.Printf("Starting ftp server on %v:%v", opts.Hostname, opts.Port)
