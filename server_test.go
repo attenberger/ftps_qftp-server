@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	filedriver "github.com/goftp/file-driver"
-	"github.com/goftp/server"
+	"github.com/attenberger/ftps_qftp-server"
+	filedriver "github.com/attenberger/goftp-file-driver"
 	"github.com/jlaffaye/ftp"
 	"github.com/stretchr/testify/assert"
 )

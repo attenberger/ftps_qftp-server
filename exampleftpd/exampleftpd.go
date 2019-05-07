@@ -10,8 +10,8 @@ import (
 	"flag"
 	"log"
 
-	filedriver "github.com/goftp/file-driver"
-	"github.com/goftp/server"
+	"github.com/attenberger/ftps_qftp-server"
+	filedriver "github.com/attenberger/goftp-file-driver"
 )
 
 func main() {
