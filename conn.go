@@ -154,7 +154,7 @@ func (conn *Conn) receiveLine(line string) {
 	conn.logger.PrintCommand(conn.sessionID, command, param)
 	cmdObj := commands[strings.ToUpper(command)]
 	if cmdObj == nil {
-		conn.writeMessage(500, "Command not found")
+		conn.writeMessage(502, "Command not found")
 		return
 	}
 	if cmdObj.RequireParam() && param == "" {
