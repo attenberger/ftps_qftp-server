@@ -24,25 +24,34 @@ const (
 	defaultWelcomeMessage = "Welcome to the Go FTP Server"
 )
 
+type dataConnectionProtectionLevel byte
+
+const (
+	DataConnectionClear     = 'C'
+	DataConnectionProtected = 'P'
+)
+
 type Conn struct {
-	conn          net.Conn
-	controlReader *bufio.Reader
-	controlWriter *bufio.Writer
-	dataConn      DataSocket
-	driver        Driver
-	auth          Auth
-	logger        Logger
-	server        *Server
-	tlsConfig     *tls.Config
-	sessionID     string
-	namePrefix    string
-	reqUser       string
-	user          string
-	renameFrom    string
-	lastFilePos   int64
-	appendData    bool
-	closed        bool
-	tls           bool
+	conn                     net.Conn
+	controlReader            *bufio.Reader
+	controlWriter            *bufio.Writer
+	dataConn                 DataSocket
+	driver                   Driver
+	auth                     Auth
+	logger                   Logger
+	server                   *Server
+	tlsConfig                *tls.Config
+	sessionID                string
+	namePrefix               string
+	reqUser                  string
+	user                     string
+	renameFrom               string
+	lastFilePos              int64
+	appendData               bool
+	closed                   bool
+	tls                      bool
+	protocolBufferSize       int
+	dataConnectionProtection dataConnectionProtectionLevel
 }
 
 func (conn *Conn) LoginUser() string {

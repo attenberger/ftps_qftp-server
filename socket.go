@@ -105,6 +105,7 @@ type ftpPassiveSocket struct {
 	logger    Logger
 	lock      sync.Mutex // protects conn and err
 	err       error
+	secure    bool
 	tlsConfig *tls.Config
 }
 
@@ -134,12 +135,13 @@ func isErrorAddressAlreadyInUse(err error) bool {
 	return false
 }
 
-func newPassiveSocket(host string, port func() int, logger Logger, sessionID string, tlsConfig *tls.Config) (DataSocket, error) {
+func newPassiveSocket(host string, port func() int, logger Logger, sessionID string, secure bool, tlsConfig *tls.Config) (DataSocket, error) {
 	socket := new(ftpPassiveSocket)
 	socket.ingress = make(chan []byte)
 	socket.egress = make(chan []byte)
 	socket.logger = logger
 	socket.host = host
+	socket.secure = secure
 	socket.tlsConfig = tlsConfig
 	const retries = 10
 	var err error
@@ -235,7 +237,7 @@ func (socket *ftpPassiveSocket) GoListenAndServe(sessionID string) (err error) {
 	}
 
 	socket.port = port
-	if socket.tlsConfig != nil {
+	if socket.secure {
 		listener = tls.NewListener(listener, socket.tlsConfig)
 	}
 

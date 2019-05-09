@@ -173,6 +173,8 @@ func (server *Server) newConn(tcpConn net.Conn, driver Driver) *Conn {
 	c.sessionID = newSessionID()
 	c.logger = server.logger
 	c.tlsConfig = server.tlsConfig
+	c.protocolBufferSize = -1
+	c.dataConnectionProtection = DataConnectionClear
 
 	driver.Init(c)
 	return c

@@ -308,7 +308,7 @@ func (cmd commandEpsv) Execute(conn *Conn, param string) {
 		return
 	}
 
-	socket, err := newPassiveSocket(addr[:lastIdx], conn.PassivePort, conn.logger, conn.sessionID, conn.tlsConfig)
+	socket, err := newPassiveSocket(addr[:lastIdx], conn.PassivePort, conn.logger, conn.sessionID, conn.dataConnectionProtection == DataConnectionProtected, conn.tlsConfig)
 	if err != nil {
 		log.Println(err)
 		conn.writeMessage(425, "Data connection failed")
@@ -582,7 +582,7 @@ func (cmd commandPasv) Execute(conn *Conn, param string) {
 		conn.writeMessage(425, "Data connection failed")
 		return
 	}
-	socket, err := newPassiveSocket(listenIP[:lastIdx], conn.PassivePort, conn.logger, conn.sessionID, conn.tlsConfig)
+	socket, err := newPassiveSocket(listenIP[:lastIdx], conn.PassivePort, conn.logger, conn.sessionID, conn.dataConnectionProtection == DataConnectionProtected, conn.tlsConfig)
 	if err != nil {
 		conn.writeMessage(425, "Data connection failed")
 		return
@@ -924,6 +924,7 @@ func (cmd commandPbsz) RequireAuth() bool {
 
 func (cmd commandPbsz) Execute(conn *Conn, param string) {
 	if conn.tls && param == "0" {
+		conn.protocolBufferSize = 0
 		conn.writeMessage(200, "OK")
 	} else {
 		conn.writeMessage(550, "Action not taken")
@@ -945,7 +946,10 @@ func (cmd commandProt) RequireAuth() bool {
 }
 
 func (cmd commandProt) Execute(conn *Conn, param string) {
-	if conn.tls && param == "P" {
+	if conn.protocolBufferSize < 0 {
+		conn.writeMessage(503, "Need protocol buffer size")
+	} else if conn.tls && param == "P" {
+		conn.dataConnectionProtection = DataConnectionProtected
 		conn.writeMessage(200, "OK")
 	} else if conn.tls {
 		conn.writeMessage(536, "Only P level is supported")
@@ -1133,9 +1137,5 @@ func (cmd commandUser) RequireAuth() bool {
 
 func (cmd commandUser) Execute(conn *Conn, param string) {
 	conn.reqUser = param
-	if conn.tls || conn.tlsConfig == nil {
-		conn.writeMessage(331, "User name ok, password required")
-	} else {
-		conn.writeMessage(534, "Unsecured login not allowed. AUTH TLS required")
-	}
+	conn.writeMessage(331, "User name ok, password required")
 }
