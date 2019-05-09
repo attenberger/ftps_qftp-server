@@ -29,7 +29,7 @@ func main() {
 
 	factory := &filedriver.FileDriverFactory{
 		RootPath: *root,
-		Perm:     server.NewSimplePerm("user", "group"),
+		Perm:     filedriver.NewSimplePerm("user", "group"),
 	}
 
 	opts := &server.ServerOpts{
