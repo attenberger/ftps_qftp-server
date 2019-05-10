@@ -24,7 +24,7 @@ const (
 	defaultWelcomeMessage = "Welcome to the Go QUIC-FTP Server"
 )
 
-type Session struct {
+type Conn struct {
 	session            quic.Session
 	controlStream      quic.Stream
 	controlReader      *bufio.Reader
@@ -47,19 +47,19 @@ type Session struct {
 	closed      bool
 }
 
-func (conn *Session) LoginUser() string {
+func (conn *Conn) LoginUser() string {
 	return conn.user
 }
 
-func (conn *Session) IsLogin() bool {
+func (conn *Conn) IsLogin() bool {
 	return len(conn.user) > 0
 }
 
-func (conn *Session) PublicIp() string {
+func (conn *Conn) PublicIp() string {
 	return conn.server.PublicIp
 }
 
-func (conn *Session) passiveListenIP() string {
+func (conn *Conn) passiveListenIP() string {
 	if len(conn.PublicIp()) > 0 {
 		return conn.PublicIp()
 	}
@@ -83,7 +83,7 @@ func newSessionID() string {
 // message when the connection closes. This loop will be running inside a
 // goroutine, so use this channel to be notified when the connection can be
 // cleaned up.
-func (conn *Session) Serve() {
+func (conn *Conn) Serve() {
 	conn.logger.Print(conn.sessionID, "Connection Established")
 	// send welcome
 	conn.writeMessage(220, conn.server.WelcomeMessage)
@@ -109,14 +109,14 @@ func (conn *Session) Serve() {
 }
 
 // Close will manually close this connection, even if the client isn't ready.
-func (conn *Session) Close() {
+func (conn *Conn) Close() {
 	conn.session.Close()
 	conn.closed = true
 }
 
 // receiveLine accepts a single line FTP command and co-ordinates an
 // appropriate response.
-func (conn *Session) receiveLine(line string) {
+func (conn *Conn) receiveLine(line string) {
 	command, param := conn.parseLine(line)
 	conn.logger.PrintCommand(conn.sessionID, command, param)
 	cmdObj := commands[strings.ToUpper(command)]
@@ -133,7 +133,7 @@ func (conn *Session) receiveLine(line string) {
 	}
 }
 
-func (conn *Session) parseLine(line string) (string, string) {
+func (conn *Conn) parseLine(line string) (string, string) {
 	params := strings.SplitN(strings.Trim(line, "\r\n"), " ", 2)
 	if len(params) == 1 {
 		return params[0], ""
@@ -142,7 +142,7 @@ func (conn *Session) parseLine(line string) (string, string) {
 }
 
 // writeMessage will send a standard FTP response back to the client.
-func (conn *Session) writeMessage(code int, message string) (wrote int, err error) {
+func (conn *Conn) writeMessage(code int, message string) (wrote int, err error) {
 	conn.logger.PrintResponse(conn.sessionID, code, message)
 	line := fmt.Sprintf("%d %s\r\n", code, message)
 	wrote, err = conn.controlWriter.WriteString(line)
@@ -151,7 +151,7 @@ func (conn *Session) writeMessage(code int, message string) (wrote int, err erro
 }
 
 // writeMessage will send a standard FTP response back to the client.
-func (conn *Session) writeMessageMultiline(code int, message string) (wrote int, err error) {
+func (conn *Conn) writeMessageMultiline(code int, message string) (wrote int, err error) {
 	conn.logger.PrintResponse(conn.sessionID, code, message)
 	line := fmt.Sprintf("%d-%s\r\n%d END\r\n", code, message, code)
 	wrote, err = conn.controlWriter.WriteString(line)
@@ -176,7 +176,7 @@ func (conn *Session) writeMessageMultiline(code int, message string) (wrote int,
 // The driver implementation is responsible for deciding how to treat this path.
 // Obviously they MUST NOT just read the path off disk. The probably want to
 // prefix the path with something to scope the users access to a sandbox.
-func (conn *Session) buildPath(filename string) (fullPath string) {
+func (conn *Conn) buildPath(filename string) (fullPath string) {
 	if len(filename) > 0 && filename[0:1] == "/" {
 		fullPath = filepath.Clean(filename)
 	} else if len(filename) > 0 && filename != "-a" {
@@ -191,7 +191,7 @@ func (conn *Session) buildPath(filename string) (fullPath string) {
 
 // sendOutofbandData will send a string to the client via the currently open
 // data socket. Assumes the socket is open and ready to be used.
-func (conn *Session) sendOutofbandData(data []byte, stream quic.SendStream) quic.StreamID {
+func (conn *Conn) sendOutofbandData(data []byte, stream quic.SendStream) quic.StreamID {
 	bytes := len(data)
 	stream.Write(data)
 	streamID := stream.StreamID()
@@ -202,7 +202,7 @@ func (conn *Session) sendOutofbandData(data []byte, stream quic.SendStream) quic
 	return streamID
 }
 
-func (conn *Session) sendOutofBandDataWriter(data io.ReadCloser, stream quic.SendStream) error {
+func (conn *Conn) sendOutofBandDataWriter(data io.ReadCloser, stream quic.SendStream) error {
 	conn.lastFilePos = 0
 	bytes, err := io.Copy(stream, data)
 	if err != nil {
@@ -216,7 +216,7 @@ func (conn *Session) sendOutofBandDataWriter(data io.ReadCloser, stream quic.Sen
 	return nil
 }
 
-func (conn *Session) getReceiveDataStream(streamID quic.StreamID) (quic.ReceiveStream, error) {
+func (conn *Conn) getReceiveDataStream(streamID quic.StreamID) (quic.ReceiveStream, error) {
 	conn.getStreamMutex.Lock()
 	defer conn.getStreamMutex.Unlock()
 	stream, available := conn.dataReceiveStreams[streamID]
@@ -238,7 +238,7 @@ func (conn *Session) getReceiveDataStream(streamID quic.StreamID) (quic.ReceiveS
 	}
 }
 
-func (conn *Session) getNewSendDataStream() (quic.SendStream, error) {
+func (conn *Conn) getNewSendDataStream() (quic.SendStream, error) {
 	conn.getStreamMutex.Lock()
 	defer conn.getStreamMutex.Unlock()
 	stream, err := conn.session.OpenUniStreamSync()

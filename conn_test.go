@@ -9,7 +9,7 @@ import (
 )
 
 func TestConnBuildPath(t *testing.T) {
-	c := &Session{
+	c := &Conn{
 		namePrefix: "",
 	}
 	var pathtests = []struct {

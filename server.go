@@ -162,8 +162,8 @@ func NewServer(opts *ServerOpts) *Server {
 // an active net.TCPConn. The TCP connection should already be open before
 // it is handed to this functions. driver is an instance of FTPDriver that
 // will handle all auth and persistence details.
-func (server *Server) newConn(quicSession quic.Session, driver Driver) (*Session, error) {
-	c := new(Session)
+func (server *Server) newConn(quicSession quic.Session, driver Driver) (*Conn, error) {
+	c := new(Conn)
 	c.namePrefix = "/"
 	c.session = quicSession
 	controlStream, err := quicSession.OpenStreamSync()

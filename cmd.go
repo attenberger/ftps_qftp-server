@@ -16,7 +16,7 @@ type Command interface {
 	IsExtend() bool
 	RequireParam() bool
 	RequireAuth() bool
-	Execute(*Session, string)
+	Execute(*Conn, string)
 }
 
 type commandMap map[string]Command
@@ -75,7 +75,7 @@ func (cmd commandAllo) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandAllo) Execute(conn *Session, param string) {
+func (cmd commandAllo) Execute(conn *Conn, param string) {
 	conn.writeMessage(202, "Obsolete")
 }
 
@@ -93,7 +93,7 @@ func (cmd commandAppe) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandAppe) Execute(conn *Session, param string) {
+func (cmd commandAppe) Execute(conn *Conn, param string) {
 	conn.appendData = true
 	conn.writeMessage(202, "Obsolete")
 }
@@ -112,7 +112,7 @@ func (cmd commandOpts) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandOpts) Execute(conn *Session, param string) {
+func (cmd commandOpts) Execute(conn *Conn, param string) {
 	parts := strings.Fields(param)
 	if len(parts) != 2 {
 		conn.writeMessage(550, "Unknow params")
@@ -157,7 +157,7 @@ func init() {
 	}
 }
 
-func (cmd commandFeat) Execute(conn *Session, param string) {
+func (cmd commandFeat) Execute(conn *Conn, param string) {
 	conn.writeMessageMultiline(211, conn.server.feats)
 }
 
@@ -178,7 +178,7 @@ func (cmd commandCdup) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandCdup) Execute(conn *Session, param string) {
+func (cmd commandCdup) Execute(conn *Conn, param string) {
 	otherCmd := &commandCwd{}
 	otherCmd.Execute(conn, "..")
 }
@@ -199,7 +199,7 @@ func (cmd commandCwd) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandCwd) Execute(conn *Session, param string) {
+func (cmd commandCwd) Execute(conn *Conn, param string) {
 	path := conn.buildPath(param)
 	err := conn.driver.ChangeDir(path)
 	if err == nil {
@@ -226,7 +226,7 @@ func (cmd commandDele) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandDele) Execute(conn *Session, param string) {
+func (cmd commandDele) Execute(conn *Conn, param string) {
 	path := conn.buildPath(param)
 	err := conn.driver.DeleteFile(path)
 	if err == nil {
@@ -252,7 +252,7 @@ func (cmd commandList) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandList) Execute(conn *Session, param string) {
+func (cmd commandList) Execute(conn *Conn, param string) {
 	path := conn.buildPath(parseListParam(param))
 	info, err := conn.driver.Stat(path)
 	if err != nil {
@@ -319,7 +319,7 @@ func (cmd commandNlst) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandNlst) Execute(conn *Session, param string) {
+func (cmd commandNlst) Execute(conn *Conn, param string) {
 	path := conn.buildPath(parseListParam(param))
 	info, err := conn.driver.Stat(path)
 	if err != nil {
@@ -365,7 +365,7 @@ func (cmd commandMdtm) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandMdtm) Execute(conn *Session, param string) {
+func (cmd commandMdtm) Execute(conn *Conn, param string) {
 	path := conn.buildPath(param)
 	stat, err := conn.driver.Stat(path)
 	if err == nil {
@@ -391,7 +391,7 @@ func (cmd commandMkd) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandMkd) Execute(conn *Session, param string) {
+func (cmd commandMkd) Execute(conn *Conn, param string) {
 	path := conn.buildPath(param)
 	err := conn.driver.MakeDir(path)
 	if err == nil {
@@ -421,7 +421,7 @@ func (cmd commandMode) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandMode) Execute(conn *Session, param string) {
+func (cmd commandMode) Execute(conn *Conn, param string) {
 	if strings.ToUpper(param) == "S" {
 		conn.writeMessage(200, "OK")
 	} else {
@@ -447,7 +447,7 @@ func (cmd commandNoop) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandNoop) Execute(conn *Session, param string) {
+func (cmd commandNoop) Execute(conn *Conn, param string) {
 	conn.writeMessage(200, "OK")
 }
 
@@ -467,7 +467,7 @@ func (cmd commandPass) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandPass) Execute(conn *Session, param string) {
+func (cmd commandPass) Execute(conn *Conn, param string) {
 	ok, err := conn.server.Auth.CheckPasswd(conn.reqUser, param)
 	if err != nil {
 		conn.writeMessage(550, "Checking password error")
@@ -500,7 +500,7 @@ func (cmd commandPwd) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandPwd) Execute(conn *Session, param string) {
+func (cmd commandPwd) Execute(conn *Conn, param string) {
 	conn.writeMessage(257, "\""+conn.namePrefix+"\" is the current directory")
 }
 
@@ -520,7 +520,7 @@ func (cmd commandQuit) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandQuit) Execute(conn *Session, param string) {
+func (cmd commandQuit) Execute(conn *Conn, param string) {
 	conn.writeMessage(221, "Goodbye")
 	conn.Close()
 }
@@ -541,7 +541,7 @@ func (cmd commandRetr) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRetr) Execute(conn *Session, param string) {
+func (cmd commandRetr) Execute(conn *Conn, param string) {
 	path := conn.buildPath(param)
 	defer func() {
 		conn.lastFilePos = 0
@@ -579,7 +579,7 @@ func (cmd commandRest) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRest) Execute(conn *Session, param string) {
+func (cmd commandRest) Execute(conn *Conn, param string) {
 	var err error
 	conn.lastFilePos, err = strconv.ParseInt(param, 10, 64)
 	if err != nil {
@@ -608,7 +608,7 @@ func (cmd commandRnfr) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRnfr) Execute(conn *Session, param string) {
+func (cmd commandRnfr) Execute(conn *Conn, param string) {
 	conn.renameFrom = conn.buildPath(param)
 	conn.writeMessage(350, "Requested file action pending further information.")
 }
@@ -629,7 +629,7 @@ func (cmd commandRnto) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRnto) Execute(conn *Session, param string) {
+func (cmd commandRnto) Execute(conn *Conn, param string) {
 	toPath := conn.buildPath(param)
 	err := conn.driver.Rename(conn.renameFrom, toPath)
 	defer func() {
@@ -659,7 +659,7 @@ func (cmd commandRmd) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRmd) Execute(conn *Session, param string) {
+func (cmd commandRmd) Execute(conn *Conn, param string) {
 	path := conn.buildPath(param)
 	err := conn.driver.DeleteDir(path)
 	if err == nil {
@@ -685,7 +685,7 @@ func (cmd commandSize) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandSize) Execute(conn *Session, param string) {
+func (cmd commandSize) Execute(conn *Conn, param string) {
 	path := conn.buildPath(param)
 	stat, err := conn.driver.Stat(path)
 	if err != nil {
@@ -712,7 +712,7 @@ func (cmd commandStor) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandStor) Execute(conn *Session, param string) {
+func (cmd commandStor) Execute(conn *Conn, param string) {
 	params := strings.SplitN(param, " ", 2)
 	if len(params) != 2 {
 		conn.writeMessage(501, "Stream ID and path seperated by a blank needed.")
@@ -766,7 +766,7 @@ func (cmd commandStru) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandStru) Execute(conn *Session, param string) {
+func (cmd commandStru) Execute(conn *Conn, param string) {
 	if strings.ToUpper(param) == "F" {
 		conn.writeMessage(200, "OK")
 	} else {
@@ -789,7 +789,7 @@ func (cmd commandSyst) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandSyst) Execute(conn *Session, param string) {
+func (cmd commandSyst) Execute(conn *Conn, param string) {
 	conn.writeMessage(215, "UNIX Type: L8")
 }
 
@@ -817,7 +817,7 @@ func (cmd commandType) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandType) Execute(conn *Session, param string) {
+func (cmd commandType) Execute(conn *Conn, param string) {
 	if strings.ToUpper(param) == "A" {
 		conn.writeMessage(200, "Type set to ASCII")
 	} else if strings.ToUpper(param) == "I" {
@@ -842,7 +842,7 @@ func (cmd commandUser) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandUser) Execute(conn *Session, param string) {
+func (cmd commandUser) Execute(conn *Conn, param string) {
 	conn.reqUser = param
 	conn.writeMessage(331, "User name ok, password required")
 }
