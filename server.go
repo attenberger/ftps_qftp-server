@@ -10,8 +10,16 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/attenberger/quic-go"
 	"net"
 	"strconv"
+	"sync"
+	"time"
+)
+
+const (
+	MaxStreamsPerSession = 3       // like default in vsftpd // but separate limit for uni- and bidirectional streams
+	MaxStreamFlowControl = 6291456 // like OpenSuse TCP /proc/sys/net/ipv4/tcp_rmem
 )
 
 // Version returns the library version
@@ -37,9 +45,6 @@ type ServerOpts struct {
 	// Public IP of the server
 	PublicIp string
 
-	// Passive ports
-	PassivePorts string
-
 	// The port that the FTP should listen on. Optional, defaults to 3000. In
 	// a production environment you will probably want to change this to 21.
 	Port int
@@ -53,9 +58,6 @@ type ServerOpts struct {
 	// if tls used, key file is required
 	KeyFile string
 
-	// If ture TLS is used in RFC4217 mode
-	ExplicitFTPS bool
-
 	WelcomeMessage string
 
 	// A logger implementation, if nil the StdLogger is used
@@ -68,18 +70,19 @@ type ServerOpts struct {
 // Always use the NewServer() method to create a new Server.
 type Server struct {
 	*ServerOpts
-	listenTo  string
-	logger    Logger
-	listener  net.Listener
-	tlsConfig *tls.Config
-	ctx       context.Context
-	cancel    context.CancelFunc
-	feats     string
+	listenTo   string
+	logger     Logger
+	listener   quic.Listener
+	tlsConfig  *tls.Config
+	quicConfig *quic.Config
+	ctx        context.Context
+	cancel     context.CancelFunc
+	feats      string
 }
 
 // ErrServerClosed is returned by ListenAndServe() or Serve() when a shutdown
 // was requested.
-var ErrServerClosed = errors.New("ftp: Server closed")
+var ErrServerClosed = errors.New("quic-ftp: Server closed")
 
 // serverOptsWithDefaults copies an ServerOpts struct into a new struct,
 // then adds any default values that are missing and returns the new data.
@@ -100,7 +103,7 @@ func serverOptsWithDefaults(opts *ServerOpts) *ServerOpts {
 	}
 	newOpts.Factory = opts.Factory
 	if opts.Name == "" {
-		newOpts.Name = "Go FTP Server"
+		newOpts.Name = "Go QUIC-FTP Server"
 	} else {
 		newOpts.Name = opts.Name
 	}
@@ -123,10 +126,8 @@ func serverOptsWithDefaults(opts *ServerOpts) *ServerOpts {
 	newOpts.TLS = opts.TLS
 	newOpts.KeyFile = opts.KeyFile
 	newOpts.CertFile = opts.CertFile
-	newOpts.ExplicitFTPS = opts.ExplicitFTPS
 
 	newOpts.PublicIp = opts.PublicIp
-	newOpts.PassivePorts = opts.PassivePorts
 
 	return &newOpts
 }
@@ -161,12 +162,19 @@ func NewServer(opts *ServerOpts) *Server {
 // an active net.TCPConn. The TCP connection should already be open before
 // it is handed to this functions. driver is an instance of FTPDriver that
 // will handle all auth and persistence details.
-func (server *Server) newConn(tcpConn net.Conn, driver Driver) *Conn {
-	c := new(Conn)
+func (server *Server) newConn(quicSession quic.Session, driver Driver) (*Session, error) {
+	c := new(Session)
 	c.namePrefix = "/"
-	c.conn = tcpConn
-	c.controlReader = bufio.NewReader(tcpConn)
-	c.controlWriter = bufio.NewWriter(tcpConn)
+	c.session = quicSession
+	controlStream, err := quicSession.OpenStreamSync()
+	if err != nil {
+		return nil, err
+	}
+	c.controlStream = controlStream
+	c.controlReader = bufio.NewReader(controlStream)
+	c.controlWriter = bufio.NewWriter(controlStream)
+	c.dataReceiveStreams = map[quic.StreamID]quic.ReceiveStream{}
+	c.getStreamMutex = sync.Mutex{}
 	c.driver = driver
 	c.auth = server.Auth
 	c.server = server
@@ -175,7 +183,7 @@ func (server *Server) newConn(tcpConn net.Conn, driver Driver) *Conn {
 	c.tlsConfig = server.tlsConfig
 
 	driver.Init(c)
-	return c
+	return c, nil
 }
 
 func simpleTLSConfig(certFile, keyFile string) (*tls.Config, error) {
@@ -193,6 +201,18 @@ func simpleTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 	return config, nil
 }
 
+func simpleQUICConfig() *quic.Config {
+	config := &quic.Config{}
+	config.ConnectionIDLength = 4
+	config.MaxIncomingUniStreams = MaxStreamsPerSession
+	config.MaxIncomingStreams = MaxStreamsPerSession
+	config.MaxReceiveStreamFlowControlWindow = MaxStreamFlowControl
+	config.MaxReceiveConnectionFlowControlWindow = MaxStreamFlowControl * (MaxStreamsPerSession + 1) // + 1 buffer for controllstreams
+	config.KeepAlive = false
+	config.IdleTimeout = time.Second * 6000
+	return config
+}
+
 // ListenAndServe asks a new Server to begin accepting client connections. It
 // accepts no arguments - all configuration is provided via the NewServer
 // function.
@@ -202,26 +222,18 @@ func simpleTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 // listening on the same port.
 //
 func (server *Server) ListenAndServe() error {
-	var listener net.Listener
+	var listener quic.Listener
 	var err error
 	var curFeats = featCmds
 
-	if server.ServerOpts.TLS {
-		server.tlsConfig, err = simpleTLSConfig(server.CertFile, server.KeyFile)
-		if err != nil {
-			return err
-		}
-
-		curFeats += " AUTH TLS\n PBSZ\n PROT\n"
-
-		if server.ServerOpts.ExplicitFTPS {
-			listener, err = net.Listen("tcp", server.listenTo)
-		} else {
-			listener, err = tls.Listen("tcp", server.listenTo, server.tlsConfig)
-		}
-	} else {
-		listener, err = net.Listen("tcp", server.listenTo)
+	server.tlsConfig, err = simpleTLSConfig(server.CertFile, server.KeyFile)
+	if err != nil {
+		return err
 	}
+
+	server.quicConfig = simpleQUICConfig()
+
+	listener, err = quic.ListenAddr(server.listenTo, server.tlsConfig, server.quicConfig)
 	if err != nil {
 		return err
 	}
@@ -236,12 +248,12 @@ func (server *Server) ListenAndServe() error {
 // Serve accepts connections on a given net.Listener and handles each
 // request in a new goroutine.
 //
-func (server *Server) Serve(l net.Listener) error {
+func (server *Server) Serve(l quic.Listener) error {
 	server.listener = l
 	server.ctx, server.cancel = context.WithCancel(context.Background())
 	sessionID := ""
 	for {
-		tcpConn, err := server.listener.Accept()
+		quicSession, err := server.listener.Accept()
 		if err != nil {
 			select {
 			case <-server.ctx.Done():
@@ -257,9 +269,14 @@ func (server *Server) Serve(l net.Listener) error {
 		driver, err := server.Factory.NewDriver()
 		if err != nil {
 			server.logger.Printf(sessionID, "Error creating driver, aborting client connection: %v", err)
-			tcpConn.Close()
+			quicSession.Close()
 		} else {
-			ftpConn := server.newConn(tcpConn, driver)
+			ftpConn, err := server.newConn(quicSession, driver)
+			if err != nil {
+				server.logger.Printf(sessionID, "Error establishing new connection: %v", err)
+				quicSession.Close()
+				continue
+			}
 			go ftpConn.Serve()
 		}
 	}

@@ -17,7 +17,7 @@ type DriverFactory interface {
 // driver for each client that connects and delegate to it as required.
 type Driver interface {
 	// Init init
-	Init(*Conn)
+	Init(*Session)
 
 	// params  - a file path
 	// returns - a time indicating when the requested path was last modified

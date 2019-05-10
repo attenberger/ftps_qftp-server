@@ -6,6 +6,7 @@ package server
 
 import (
 	"fmt"
+	"github.com/attenberger/quic-go"
 	"log"
 	"strconv"
 	"strings"
@@ -15,39 +16,27 @@ type Command interface {
 	IsExtend() bool
 	RequireParam() bool
 	RequireAuth() bool
-	Execute(*Conn, string)
+	Execute(*Session, string)
 }
 
 type commandMap map[string]Command
 
 var (
 	commands = commandMap{
-		"ADAT": commandAdat{},
 		"ALLO": commandAllo{},
 		"APPE": commandAppe{},
-		"AUTH": commandAuth{},
 		"CDUP": commandCdup{},
 		"CWD":  commandCwd{},
-		"CCC":  commandCcc{},
-		"CONF": commandConf{},
 		"DELE": commandDele{},
-		"ENC":  commandEnc{},
-		"EPRT": commandEprt{},
-		"EPSV": commandEpsv{},
 		"FEAT": commandFeat{},
 		"LIST": commandList{},
 		"NLST": commandNlst{},
 		"MDTM": commandMdtm{},
-		"MIC":  commandMic{},
 		"MKD":  commandMkd{},
 		"MODE": commandMode{},
 		"NOOP": commandNoop{},
 		"OPTS": commandOpts{},
 		"PASS": commandPass{},
-		"PASV": commandPasv{},
-		"PBSZ": commandPbsz{},
-		"PORT": commandPort{},
-		"PROT": commandProt{},
 		"PWD":  commandPwd{},
 		"QUIT": commandQuit{},
 		"RETR": commandRetr{},
@@ -86,7 +75,7 @@ func (cmd commandAllo) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandAllo) Execute(conn *Conn, param string) {
+func (cmd commandAllo) Execute(conn *Session, param string) {
 	conn.writeMessage(202, "Obsolete")
 }
 
@@ -104,7 +93,7 @@ func (cmd commandAppe) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandAppe) Execute(conn *Conn, param string) {
+func (cmd commandAppe) Execute(conn *Session, param string) {
 	conn.appendData = true
 	conn.writeMessage(202, "Obsolete")
 }
@@ -123,7 +112,7 @@ func (cmd commandOpts) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandOpts) Execute(conn *Conn, param string) {
+func (cmd commandOpts) Execute(conn *Session, param string) {
 	parts := strings.Fields(param)
 	if len(parts) != 2 {
 		conn.writeMessage(550, "Unknow params")
@@ -168,7 +157,7 @@ func init() {
 	}
 }
 
-func (cmd commandFeat) Execute(conn *Conn, param string) {
+func (cmd commandFeat) Execute(conn *Session, param string) {
 	conn.writeMessageMultiline(211, conn.server.feats)
 }
 
@@ -189,7 +178,7 @@ func (cmd commandCdup) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandCdup) Execute(conn *Conn, param string) {
+func (cmd commandCdup) Execute(conn *Session, param string) {
 	otherCmd := &commandCwd{}
 	otherCmd.Execute(conn, "..")
 }
@@ -210,7 +199,7 @@ func (cmd commandCwd) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandCwd) Execute(conn *Conn, param string) {
+func (cmd commandCwd) Execute(conn *Session, param string) {
 	path := conn.buildPath(param)
 	err := conn.driver.ChangeDir(path)
 	if err == nil {
@@ -237,7 +226,7 @@ func (cmd commandDele) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandDele) Execute(conn *Conn, param string) {
+func (cmd commandDele) Execute(conn *Session, param string) {
 	path := conn.buildPath(param)
 	err := conn.driver.DeleteFile(path)
 	if err == nil {
@@ -245,78 +234,6 @@ func (cmd commandDele) Execute(conn *Conn, param string) {
 	} else {
 		conn.writeMessage(550, fmt.Sprint("File delete failed: ", err))
 	}
-}
-
-// commandEprt responds to the EPRT FTP command. It allows the client to
-// request an active data socket with more options than the original PORT
-// command. It mainly adds ipv6 support.
-type commandEprt struct{}
-
-func (cmd commandEprt) IsExtend() bool {
-	return true
-}
-
-func (cmd commandEprt) RequireParam() bool {
-	return true
-}
-
-func (cmd commandEprt) RequireAuth() bool {
-	return true
-}
-
-func (cmd commandEprt) Execute(conn *Conn, param string) {
-	delim := string(param[0:1])
-	parts := strings.Split(param, delim)
-	addressFamily, err := strconv.Atoi(parts[1])
-	host := parts[2]
-	port, err := strconv.Atoi(parts[3])
-	if addressFamily != 1 && addressFamily != 2 {
-		conn.writeMessage(522, "Network protocol not supported, use (1,2)")
-		return
-	}
-	socket, err := newActiveSocket(host, port, conn.logger, conn.sessionID)
-	if err != nil {
-		conn.writeMessage(425, "Data connection failed")
-		return
-	}
-	conn.dataConn = socket
-	conn.writeMessage(200, "Connection established ("+strconv.Itoa(port)+")")
-}
-
-// commandEpsv responds to the EPSV FTP command. It allows the client to
-// request a passive data socket with more options than the original PASV
-// command. It mainly adds ipv6 support, although we don't support that yet.
-type commandEpsv struct{}
-
-func (cmd commandEpsv) IsExtend() bool {
-	return true
-}
-
-func (cmd commandEpsv) RequireParam() bool {
-	return false
-}
-
-func (cmd commandEpsv) RequireAuth() bool {
-	return true
-}
-
-func (cmd commandEpsv) Execute(conn *Conn, param string) {
-	addr := conn.passiveListenIP()
-	lastIdx := strings.LastIndex(addr, ":")
-	if lastIdx <= 0 {
-		conn.writeMessage(425, "Data connection failed")
-		return
-	}
-
-	socket, err := newPassiveSocket(addr[:lastIdx], conn.PassivePort, conn.logger, conn.sessionID, conn.tlsConfig)
-	if err != nil {
-		log.Println(err)
-		conn.writeMessage(425, "Data connection failed")
-		return
-	}
-	conn.dataConn = socket
-	msg := fmt.Sprintf("Entering Extended Passive Mode (|||%d|)", socket.Port())
-	conn.writeMessage(229, msg)
 }
 
 // commandList responds to the LIST FTP command. It allows the client to retreive
@@ -335,7 +252,7 @@ func (cmd commandList) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandList) Execute(conn *Conn, param string) {
+func (cmd commandList) Execute(conn *Session, param string) {
 	path := conn.buildPath(parseListParam(param))
 	info, err := conn.driver.Stat(path)
 	if err != nil {
@@ -360,9 +277,13 @@ func (cmd commandList) Execute(conn *Conn, param string) {
 	} else {
 		files = append(files, info)
 	}
-
-	conn.writeMessage(150, "Opening ASCII mode data connection for file list")
-	conn.sendOutofbandData(listFormatter(files).Detailed())
+	stream, err := conn.getNewSendDataStream()
+	if err != nil {
+		conn.writeMessage(425, "Can't open data stream.")
+		return
+	}
+	conn.writeMessage(150, fmt.Sprintf("%d Opening ASCII mode data connection for file list", stream.StreamID()))
+	conn.sendOutofbandData(listFormatter(files).Detailed(), stream)
 }
 
 func parseListParam(param string) (path string) {
@@ -398,7 +319,7 @@ func (cmd commandNlst) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandNlst) Execute(conn *Conn, param string) {
+func (cmd commandNlst) Execute(conn *Session, param string) {
 	path := conn.buildPath(parseListParam(param))
 	info, err := conn.driver.Stat(path)
 	if err != nil {
@@ -419,8 +340,13 @@ func (cmd commandNlst) Execute(conn *Conn, param string) {
 		conn.writeMessage(550, err.Error())
 		return
 	}
-	conn.writeMessage(150, "Opening ASCII mode data connection for file list")
-	conn.sendOutofbandData(listFormatter(files).Short())
+	stream, err := conn.getNewSendDataStream()
+	if err != nil {
+		conn.writeMessage(425, "Can't open data stream.")
+		return
+	}
+	conn.writeMessage(150, fmt.Sprintf("%d Opening ASCII mode data connection for file list", stream.StreamID()))
+	conn.sendOutofbandData(listFormatter(files).Short(), stream)
 }
 
 // commandMdtm responds to the MDTM FTP command. It allows the client to
@@ -439,7 +365,7 @@ func (cmd commandMdtm) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandMdtm) Execute(conn *Conn, param string) {
+func (cmd commandMdtm) Execute(conn *Session, param string) {
 	path := conn.buildPath(param)
 	stat, err := conn.driver.Stat(path)
 	if err == nil {
@@ -465,7 +391,7 @@ func (cmd commandMkd) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandMkd) Execute(conn *Conn, param string) {
+func (cmd commandMkd) Execute(conn *Session, param string) {
 	path := conn.buildPath(param)
 	err := conn.driver.MakeDir(path)
 	if err == nil {
@@ -495,7 +421,7 @@ func (cmd commandMode) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandMode) Execute(conn *Conn, param string) {
+func (cmd commandMode) Execute(conn *Session, param string) {
 	if strings.ToUpper(param) == "S" {
 		conn.writeMessage(200, "OK")
 	} else {
@@ -521,7 +447,7 @@ func (cmd commandNoop) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandNoop) Execute(conn *Conn, param string) {
+func (cmd commandNoop) Execute(conn *Session, param string) {
 	conn.writeMessage(200, "OK")
 }
 
@@ -541,7 +467,7 @@ func (cmd commandPass) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandPass) Execute(conn *Conn, param string) {
+func (cmd commandPass) Execute(conn *Session, param string) {
 	ok, err := conn.server.Auth.CheckPasswd(conn.reqUser, param)
 	if err != nil {
 		conn.writeMessage(550, "Checking password error")
@@ -555,78 +481,6 @@ func (cmd commandPass) Execute(conn *Conn, param string) {
 	} else {
 		conn.writeMessage(530, "Incorrect password, not logged in")
 	}
-}
-
-// commandPasv responds to the PASV FTP command.
-//
-// The client is requesting us to open a new TCP listing socket and wait for them
-// to connect to it.
-type commandPasv struct{}
-
-func (cmd commandPasv) IsExtend() bool {
-	return false
-}
-
-func (cmd commandPasv) RequireParam() bool {
-	return false
-}
-
-func (cmd commandPasv) RequireAuth() bool {
-	return true
-}
-
-func (cmd commandPasv) Execute(conn *Conn, param string) {
-	listenIP := conn.passiveListenIP()
-	lastIdx := strings.LastIndex(listenIP, ":")
-	if lastIdx <= 0 {
-		conn.writeMessage(425, "Data connection failed")
-		return
-	}
-	socket, err := newPassiveSocket(listenIP[:lastIdx], conn.PassivePort, conn.logger, conn.sessionID, conn.tlsConfig)
-	if err != nil {
-		conn.writeMessage(425, "Data connection failed")
-		return
-	}
-	conn.dataConn = socket
-	p1 := socket.Port() / 256
-	p2 := socket.Port() - (p1 * 256)
-	quads := strings.Split(listenIP[:lastIdx], ".")
-	target := fmt.Sprintf("(%s,%s,%s,%s,%d,%d)", quads[0], quads[1], quads[2], quads[3], p1, p2)
-	msg := "Entering Passive Mode " + target
-	conn.writeMessage(227, msg)
-}
-
-// commandPort responds to the PORT FTP command.
-//
-// The client has opened a listening socket for sending out of band data and
-// is requesting that we connect to it
-type commandPort struct{}
-
-func (cmd commandPort) IsExtend() bool {
-	return false
-}
-
-func (cmd commandPort) RequireParam() bool {
-	return true
-}
-
-func (cmd commandPort) RequireAuth() bool {
-	return true
-}
-
-func (cmd commandPort) Execute(conn *Conn, param string) {
-	nums := strings.Split(param, ",")
-	portOne, _ := strconv.Atoi(nums[4])
-	portTwo, _ := strconv.Atoi(nums[5])
-	port := (portOne * 256) + portTwo
-	host := nums[0] + "." + nums[1] + "." + nums[2] + "." + nums[3]
-	socket, err := newActiveSocket(host, port, conn.logger, conn.sessionID)
-	if err != nil {
-		conn.writeMessage(425, "Data connection failed")
-		return
-	}
-	conn.dataConn = socket
-	conn.writeMessage(200, "Connection established ("+strconv.Itoa(port)+")")
 }
 
 // commandPwd responds to the PWD FTP command.
@@ -646,7 +500,7 @@ func (cmd commandPwd) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandPwd) Execute(conn *Conn, param string) {
+func (cmd commandPwd) Execute(conn *Session, param string) {
 	conn.writeMessage(257, "\""+conn.namePrefix+"\" is the current directory")
 }
 
@@ -666,7 +520,7 @@ func (cmd commandQuit) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandQuit) Execute(conn *Conn, param string) {
+func (cmd commandQuit) Execute(conn *Session, param string) {
 	conn.writeMessage(221, "Goodbye")
 	conn.Close()
 }
@@ -687,7 +541,7 @@ func (cmd commandRetr) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRetr) Execute(conn *Conn, param string) {
+func (cmd commandRetr) Execute(conn *Session, param string) {
 	path := conn.buildPath(param)
 	defer func() {
 		conn.lastFilePos = 0
@@ -696,8 +550,13 @@ func (cmd commandRetr) Execute(conn *Conn, param string) {
 	bytes, data, err := conn.driver.GetFile(path, conn.lastFilePos)
 	if err == nil {
 		defer data.Close()
-		conn.writeMessage(150, fmt.Sprintf("Data transfer starting %v bytes", bytes))
-		err = conn.sendOutofBandDataWriter(data)
+		stream, err := conn.getNewSendDataStream()
+		if err != nil {
+			conn.writeMessage(425, "Can't open data stream.")
+			return
+		}
+		conn.writeMessage(150, fmt.Sprintf("%d Data transfer starting %v bytes", stream.StreamID(), bytes))
+		err = conn.sendOutofBandDataWriter(data, stream)
 		if err != nil {
 			conn.writeMessage(551, "Error reading file")
 		}
@@ -720,7 +579,7 @@ func (cmd commandRest) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRest) Execute(conn *Conn, param string) {
+func (cmd commandRest) Execute(conn *Session, param string) {
 	var err error
 	conn.lastFilePos, err = strconv.ParseInt(param, 10, 64)
 	if err != nil {
@@ -749,7 +608,7 @@ func (cmd commandRnfr) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRnfr) Execute(conn *Conn, param string) {
+func (cmd commandRnfr) Execute(conn *Session, param string) {
 	conn.renameFrom = conn.buildPath(param)
 	conn.writeMessage(350, "Requested file action pending further information.")
 }
@@ -770,7 +629,7 @@ func (cmd commandRnto) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRnto) Execute(conn *Conn, param string) {
+func (cmd commandRnto) Execute(conn *Session, param string) {
 	toPath := conn.buildPath(param)
 	err := conn.driver.Rename(conn.renameFrom, toPath)
 	defer func() {
@@ -800,7 +659,7 @@ func (cmd commandRmd) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRmd) Execute(conn *Conn, param string) {
+func (cmd commandRmd) Execute(conn *Session, param string) {
 	path := conn.buildPath(param)
 	err := conn.driver.DeleteDir(path)
 	if err == nil {
@@ -808,168 +667,6 @@ func (cmd commandRmd) Execute(conn *Conn, param string) {
 	} else {
 		conn.writeMessage(550, fmt.Sprint("Directory delete failed: ", err))
 	}
-}
-
-type commandAdat struct{}
-
-func (cmd commandAdat) IsExtend() bool {
-	return false
-}
-
-func (cmd commandAdat) RequireParam() bool {
-	return true
-}
-
-func (cmd commandAdat) RequireAuth() bool {
-	return true
-}
-
-func (cmd commandAdat) Execute(conn *Conn, param string) {
-	conn.writeMessage(550, "Action not taken")
-}
-
-type commandAuth struct{}
-
-func (cmd commandAuth) IsExtend() bool {
-	return false
-}
-
-func (cmd commandAuth) RequireParam() bool {
-	return true
-}
-
-func (cmd commandAuth) RequireAuth() bool {
-	return false
-}
-
-func (cmd commandAuth) Execute(conn *Conn, param string) {
-	if param == "TLS" && conn.tlsConfig != nil {
-		conn.writeMessage(234, "AUTH command OK")
-		err := conn.upgradeToTLS()
-		if err != nil {
-			conn.logger.Printf("Error upgrading connection to TLS %v", err.Error())
-		}
-	} else {
-		conn.writeMessage(550, "Action not taken")
-	}
-}
-
-type commandCcc struct{}
-
-func (cmd commandCcc) IsExtend() bool {
-	return false
-}
-
-func (cmd commandCcc) RequireParam() bool {
-	return true
-}
-
-func (cmd commandCcc) RequireAuth() bool {
-	return true
-}
-
-func (cmd commandCcc) Execute(conn *Conn, param string) {
-	conn.writeMessage(550, "Action not taken")
-}
-
-type commandEnc struct{}
-
-func (cmd commandEnc) IsExtend() bool {
-	return false
-}
-
-func (cmd commandEnc) RequireParam() bool {
-	return true
-}
-
-func (cmd commandEnc) RequireAuth() bool {
-	return true
-}
-
-func (cmd commandEnc) Execute(conn *Conn, param string) {
-	conn.writeMessage(550, "Action not taken")
-}
-
-type commandMic struct{}
-
-func (cmd commandMic) IsExtend() bool {
-	return false
-}
-
-func (cmd commandMic) RequireParam() bool {
-	return true
-}
-
-func (cmd commandMic) RequireAuth() bool {
-	return true
-}
-
-func (cmd commandMic) Execute(conn *Conn, param string) {
-	conn.writeMessage(550, "Action not taken")
-}
-
-type commandPbsz struct{}
-
-func (cmd commandPbsz) IsExtend() bool {
-	return false
-}
-
-func (cmd commandPbsz) RequireParam() bool {
-	return true
-}
-
-func (cmd commandPbsz) RequireAuth() bool {
-	return false
-}
-
-func (cmd commandPbsz) Execute(conn *Conn, param string) {
-	if conn.tls && param == "0" {
-		conn.writeMessage(200, "OK")
-	} else {
-		conn.writeMessage(550, "Action not taken")
-	}
-}
-
-type commandProt struct{}
-
-func (cmd commandProt) IsExtend() bool {
-	return false
-}
-
-func (cmd commandProt) RequireParam() bool {
-	return true
-}
-
-func (cmd commandProt) RequireAuth() bool {
-	return false
-}
-
-func (cmd commandProt) Execute(conn *Conn, param string) {
-	if conn.tls && param == "P" {
-		conn.writeMessage(200, "OK")
-	} else if conn.tls {
-		conn.writeMessage(536, "Only P level is supported")
-	} else {
-		conn.writeMessage(550, "Action not taken")
-	}
-}
-
-type commandConf struct{}
-
-func (cmd commandConf) IsExtend() bool {
-	return false
-}
-
-func (cmd commandConf) RequireParam() bool {
-	return true
-}
-
-func (cmd commandConf) RequireAuth() bool {
-	return true
-}
-
-func (cmd commandConf) Execute(conn *Conn, param string) {
-	conn.writeMessage(550, "Action not taken")
 }
 
 // commandSize responds to the SIZE FTP command. It returns the size of the
@@ -988,7 +685,7 @@ func (cmd commandSize) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandSize) Execute(conn *Conn, param string) {
+func (cmd commandSize) Execute(conn *Session, param string) {
 	path := conn.buildPath(param)
 	stat, err := conn.driver.Stat(path)
 	if err != nil {
@@ -1015,15 +712,29 @@ func (cmd commandStor) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandStor) Execute(conn *Conn, param string) {
-	targetPath := conn.buildPath(param)
+func (cmd commandStor) Execute(conn *Session, param string) {
+	params := strings.SplitN(param, " ", 2)
+	if len(params) != 2 {
+		conn.writeMessage(501, "Stream ID and path seperated by a blank needed.")
+	}
+	streamIDUint64, err := strconv.ParseInt(params[0], 10, 64)
+	if err != nil || streamIDUint64 < 0 || streamIDUint64%4 != 2 {
+		conn.writeMessage(501, "Stream ID has not a valid value for a unidirectional stream from the client.")
+	}
+	streamID := quic.StreamID(streamIDUint64)
 	conn.writeMessage(150, "Data transfer starting")
+	stream, err := conn.getReceiveDataStream(streamID)
+	if err != nil {
+		conn.writeMessage(425, "Can't open data stream.")
+	}
+
+	targetPath := conn.buildPath(params[1])
 
 	defer func() {
 		conn.appendData = false
 	}()
 
-	bytes, err := conn.driver.PutFile(targetPath, conn.dataConn, conn.appendData)
+	bytes, err := conn.driver.PutFile(targetPath, stream, conn.appendData)
 	if err == nil {
 		msg := "OK, received " + strconv.Itoa(int(bytes)) + " bytes"
 		conn.writeMessage(226, msg)
@@ -1055,7 +766,7 @@ func (cmd commandStru) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandStru) Execute(conn *Conn, param string) {
+func (cmd commandStru) Execute(conn *Session, param string) {
 	if strings.ToUpper(param) == "F" {
 		conn.writeMessage(200, "OK")
 	} else {
@@ -1078,7 +789,7 @@ func (cmd commandSyst) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandSyst) Execute(conn *Conn, param string) {
+func (cmd commandSyst) Execute(conn *Session, param string) {
 	conn.writeMessage(215, "UNIX Type: L8")
 }
 
@@ -1106,7 +817,7 @@ func (cmd commandType) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandType) Execute(conn *Conn, param string) {
+func (cmd commandType) Execute(conn *Session, param string) {
 	if strings.ToUpper(param) == "A" {
 		conn.writeMessage(200, "Type set to ASCII")
 	} else if strings.ToUpper(param) == "I" {
@@ -1131,11 +842,7 @@ func (cmd commandUser) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandUser) Execute(conn *Conn, param string) {
+func (cmd commandUser) Execute(conn *Session, param string) {
 	conn.reqUser = param
-	if conn.tls || conn.tlsConfig == nil {
-		conn.writeMessage(331, "User name ok, password required")
-	} else {
-		conn.writeMessage(534, "Unsecured login not allowed. AUTH TLS required")
-	}
+	conn.writeMessage(331, "User name ok, password required")
 }
