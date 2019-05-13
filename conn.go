@@ -14,9 +14,6 @@ import (
 	"fmt"
 	"github.com/attenberger/quic-go"
 	"io"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"sync"
 )
 
@@ -25,36 +22,33 @@ const (
 )
 
 type Conn struct {
-	session            quic.Session
-	controlStream      quic.Stream
+	// The factory that will be used to create a new FTPDriver instance for
+	// each client connection. This is a mandatory option.
+	factory DriverFactory
+
+	session quic.Session
+	/*controlStream      quic.Stream
 	controlReader      *bufio.Reader
-	controlWriter      *bufio.Writer
+	controlWriter      *bufio.Writer*/
 	dataReceiveStreams map[quic.StreamID]quic.ReceiveStream
-	getStreamMutex     sync.Mutex
+	structAccessMutex  sync.Mutex
 	//dataConn      	DataSocket
-	driver      Driver
-	auth        Auth
-	logger      Logger
-	server      *Server
-	tlsConfig   *tls.Config
-	sessionID   string
-	namePrefix  string
-	reqUser     string
-	user        string
-	renameFrom  string
-	lastFilePos int64
-	appendData  bool
-	closed      bool
+	//driver      Driver
+	auth      Auth
+	logger    Logger
+	server    *Server
+	tlsConfig *tls.Config
+	sessionID string
+	//renameFrom  string
+	//lastFilePos int64
+	//appendData  bool
+	closed           bool
+	connRunningMutex sync.Mutex
+	runningSubConn   int
 }
 
-func (conn *Conn) LoginUser() string {
-	return conn.user
-}
-
-func (conn *Conn) IsLogin() bool {
-	return len(conn.user) > 0
-}
-
+/*
+ */
 func (conn *Conn) PublicIp() string {
 	return conn.server.PublicIp
 }
@@ -78,6 +72,25 @@ func newSessionID() string {
 	return mdStr[0:20]
 }
 
+// NewSubConn constructs a new object that will handle the FTP protocol over
+// an QUIC-Stream. The QUIC connection should already be open before
+// it is handed to this functions. driver is an instance of FTPDriver that
+// will handle all auth and persistence details.
+func (conn *Conn) newSubConn(quicStream quic.Stream, driver Driver) *SubConn {
+	subC := new(SubConn)
+	subC.connection = conn
+	subC.controlStream = quicStream
+	subC.controlReader = bufio.NewReader(quicStream)
+	subC.controlWriter = bufio.NewWriter(quicStream)
+	subC.namePrefix = "/"
+	subC.logger = &StdLogger{}
+	subC.sessionID = conn.sessionID
+	subC.driver = driver
+
+	//driver.Init(c)
+	return subC
+}
+
 // Serve starts an endless loop that reads FTP commands from the client and
 // responds appropriately. terminated is a channel that will receive a true
 // message when the connection closes. This loop will be running inside a
@@ -85,27 +98,50 @@ func newSessionID() string {
 // cleaned up.
 func (conn *Conn) Serve() {
 	conn.logger.Print(conn.sessionID, "Connection Established")
-	// send welcome
-	conn.writeMessage(220, conn.server.WelcomeMessage)
-	// read commands
-	for {
-		line, err := conn.controlReader.ReadString('\n')
-		if err != nil {
-			if err != io.EOF {
-				conn.logger.Print(conn.sessionID, fmt.Sprint("read error:", err))
-			}
 
-			break
+	for {
+		driver, err := conn.factory.NewDriver()
+		if err != nil {
+			conn.logger.Printf(conn.sessionID, "Error creating driver, aborting client connection: %v", err)
+			conn.Close()
+			return
 		}
-		conn.receiveLine(line)
-		// QUIT command closes connection, break to avoid error on reading from
-		// closed socket
-		if conn.closed == true {
-			break
+
+		controlStream, err := conn.session.AcceptStream()
+		if err != nil && err.Error() != "NO_ERROR" {
+			conn.logger.Print(conn.sessionID, fmt.Sprint("Error while accepting control stream, aborting client connection:", err))
+			conn.Close()
+			return
 		}
+
+		subConn := conn.newSubConn(controlStream, driver)
+		conn.structAccessMutex.Lock()
+		conn.runningSubConn++
+		conn.structAccessMutex.Unlock()
+		go subConn.Serve()
 	}
-	conn.Close()
-	conn.logger.Print(conn.sessionID, "Connection Terminated")
+
+	/*for i := 0; i < MaxStreamsPerSession; i++ {
+		driver, err := conn.factory.NewDriver()
+		if err != nil {
+			conn.logger.Printf(conn.sessionID, "Error creating driver, aborting client connection: %v", err)
+			conn.Close()
+			return
+		}
+
+		controlStream, err := conn.session.OpenStreamSync()
+		if err != nil {
+			conn.logger.Print(conn.sessionID, fmt.Sprint("Error while opening main control stream, aborting client connection:", err))
+			conn.Close()
+			return
+		}
+
+		subConn := conn.newSubConn(controlStream, driver)
+		conn.structAccessMutex.Lock()
+		conn.runningSubConn++
+		conn.structAccessMutex.Unlock()
+		go subConn.Serve()
+	}*/
 }
 
 // Close will manually close this connection, even if the client isn't ready.
@@ -114,7 +150,24 @@ func (conn *Conn) Close() {
 	conn.closed = true
 }
 
-// receiveLine accepts a single line FTP command and co-ordinates an
+func (conn *Conn) ReportSubConnFinsihed() {
+	conn.structAccessMutex.Lock()
+	conn.runningSubConn--
+	if conn.runningSubConn == 0 {
+		conn.Close()
+		conn.logger.Print(conn.sessionID, "Connection Terminated")
+		return
+	}
+	conn.structAccessMutex.Unlock()
+}
+
+func (conn *Conn) GetNumberSubConn() int {
+	conn.structAccessMutex.Lock()
+	defer conn.structAccessMutex.Unlock()
+	return conn.runningSubConn
+}
+
+/*// receiveLine accepts a single line FTP command and co-ordinates an
 // appropriate response.
 func (conn *Conn) receiveLine(line string) {
 	command, param := conn.parseLine(line)
@@ -214,11 +267,11 @@ func (conn *Conn) sendOutofBandDataWriter(data io.ReadCloser, stream quic.SendSt
 	stream.Close()
 
 	return nil
-}
+}*/
 
 func (conn *Conn) getReceiveDataStream(streamID quic.StreamID) (quic.ReceiveStream, error) {
-	conn.getStreamMutex.Lock()
-	defer conn.getStreamMutex.Unlock()
+	conn.structAccessMutex.Lock()
+	defer conn.structAccessMutex.Unlock()
 	stream, available := conn.dataReceiveStreams[streamID]
 	if available {
 		return stream, nil
@@ -239,8 +292,8 @@ func (conn *Conn) getReceiveDataStream(streamID quic.StreamID) (quic.ReceiveStre
 }
 
 func (conn *Conn) getNewSendDataStream() (quic.SendStream, error) {
-	conn.getStreamMutex.Lock()
-	defer conn.getStreamMutex.Unlock()
+	conn.structAccessMutex.Lock()
+	defer conn.structAccessMutex.Unlock()
 	stream, err := conn.session.OpenUniStreamSync()
 	if err != nil {
 		return nil, err

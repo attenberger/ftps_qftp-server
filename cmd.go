@@ -16,7 +16,7 @@ type Command interface {
 	IsExtend() bool
 	RequireParam() bool
 	RequireAuth() bool
-	Execute(*Conn, string)
+	Execute(*SubConn, string)
 }
 
 type commandMap map[string]Command
@@ -75,8 +75,8 @@ func (cmd commandAllo) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandAllo) Execute(conn *Conn, param string) {
-	conn.writeMessage(202, "Obsolete")
+func (cmd commandAllo) Execute(subConn *SubConn, param string) {
+	subConn.writeMessage(202, "Obsolete")
 }
 
 type commandAppe struct{}
@@ -93,9 +93,9 @@ func (cmd commandAppe) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandAppe) Execute(conn *Conn, param string) {
-	conn.appendData = true
-	conn.writeMessage(202, "Obsolete")
+func (cmd commandAppe) Execute(subConn *SubConn, param string) {
+	subConn.appendData = true
+	subConn.writeMessage(202, "Obsolete")
 }
 
 type commandOpts struct{}
@@ -112,21 +112,21 @@ func (cmd commandOpts) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandOpts) Execute(conn *Conn, param string) {
+func (cmd commandOpts) Execute(subConn *SubConn, param string) {
 	parts := strings.Fields(param)
 	if len(parts) != 2 {
-		conn.writeMessage(550, "Unknow params")
+		subConn.writeMessage(550, "Unknow params")
 		return
 	}
 	if strings.ToUpper(parts[0]) != "UTF8" {
-		conn.writeMessage(550, "Unknow params")
+		subConn.writeMessage(550, "Unknow params")
 		return
 	}
 
 	if strings.ToUpper(parts[1]) == "ON" {
-		conn.writeMessage(200, "UTF8 mode enabled")
+		subConn.writeMessage(200, "UTF8 mode enabled")
 	} else {
-		conn.writeMessage(550, "Unsupported non-utf8 mode")
+		subConn.writeMessage(550, "Unsupported non-utf8 mode")
 	}
 }
 
@@ -157,8 +157,8 @@ func init() {
 	}
 }
 
-func (cmd commandFeat) Execute(conn *Conn, param string) {
-	conn.writeMessageMultiline(211, conn.server.feats)
+func (cmd commandFeat) Execute(subConn *SubConn, param string) {
+	subConn.writeMessageMultiline(211, subConn.connection.server.feats)
 }
 
 // cmdCdup responds to the CDUP FTP command.
@@ -178,9 +178,9 @@ func (cmd commandCdup) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandCdup) Execute(conn *Conn, param string) {
+func (cmd commandCdup) Execute(subConn *SubConn, param string) {
 	otherCmd := &commandCwd{}
-	otherCmd.Execute(conn, "..")
+	otherCmd.Execute(subConn, "..")
 }
 
 // commandCwd responds to the CWD FTP command. It allows the client to change the
@@ -199,14 +199,14 @@ func (cmd commandCwd) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandCwd) Execute(conn *Conn, param string) {
-	path := conn.buildPath(param)
-	err := conn.driver.ChangeDir(path)
+func (cmd commandCwd) Execute(subConn *SubConn, param string) {
+	path := subConn.buildPath(param)
+	err := subConn.driver.ChangeDir(path)
 	if err == nil {
-		conn.namePrefix = path
-		conn.writeMessage(250, "Directory changed to "+path)
+		subConn.namePrefix = path
+		subConn.writeMessage(250, "Directory changed to "+path)
 	} else {
-		conn.writeMessage(550, fmt.Sprint("Directory change to ", path, " failed: ", err))
+		subConn.writeMessage(550, fmt.Sprint("Directory change to ", path, " failed: ", err))
 	}
 }
 
@@ -226,13 +226,13 @@ func (cmd commandDele) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandDele) Execute(conn *Conn, param string) {
-	path := conn.buildPath(param)
-	err := conn.driver.DeleteFile(path)
+func (cmd commandDele) Execute(subConn *SubConn, param string) {
+	path := subConn.buildPath(param)
+	err := subConn.driver.DeleteFile(path)
 	if err == nil {
-		conn.writeMessage(250, "File deleted")
+		subConn.writeMessage(250, "File deleted")
 	} else {
-		conn.writeMessage(550, fmt.Sprint("File delete failed: ", err))
+		subConn.writeMessage(550, fmt.Sprint("File delete failed: ", err))
 	}
 }
 
@@ -252,38 +252,38 @@ func (cmd commandList) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandList) Execute(conn *Conn, param string) {
-	path := conn.buildPath(parseListParam(param))
-	info, err := conn.driver.Stat(path)
+func (cmd commandList) Execute(subConn *SubConn, param string) {
+	path := subConn.buildPath(parseListParam(param))
+	info, err := subConn.driver.Stat(path)
 	if err != nil {
-		conn.writeMessage(550, err.Error())
+		subConn.writeMessage(550, err.Error())
 		return
 	}
 
 	if info == nil {
-		conn.logger.Printf(conn.sessionID, "%s: no such file or directory.\n", path)
+		subConn.logger.Printf(subConn.sessionID+":"+strconv.FormatUint(uint64(subConn.controlStream.StreamID()), 10), "%s: no such file or directory.\n", path)
 		return
 	}
 	var files []FileInfo
 	if info.IsDir() {
-		err = conn.driver.ListDir(path, func(f FileInfo) error {
+		err = subConn.driver.ListDir(path, func(f FileInfo) error {
 			files = append(files, f)
 			return nil
 		})
 		if err != nil {
-			conn.writeMessage(550, err.Error())
+			subConn.writeMessage(550, err.Error())
 			return
 		}
 	} else {
 		files = append(files, info)
 	}
-	stream, err := conn.getNewSendDataStream()
+	stream, err := subConn.connection.getNewSendDataStream()
 	if err != nil {
-		conn.writeMessage(425, "Can't open data stream.")
+		subConn.writeMessage(425, "Can't open data stream.")
 		return
 	}
-	conn.writeMessage(150, fmt.Sprintf("%d Opening ASCII mode data connection for file list", stream.StreamID()))
-	conn.sendOutofbandData(listFormatter(files).Detailed(), stream)
+	subConn.writeMessage(150, fmt.Sprintf("%d Opening ASCII mode data connection for file list", stream.StreamID()))
+	subConn.sendOutofbandData(listFormatter(files).Detailed(), stream)
 }
 
 func parseListParam(param string) (path string) {
@@ -319,34 +319,34 @@ func (cmd commandNlst) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandNlst) Execute(conn *Conn, param string) {
-	path := conn.buildPath(parseListParam(param))
-	info, err := conn.driver.Stat(path)
+func (cmd commandNlst) Execute(subConn *SubConn, param string) {
+	path := subConn.buildPath(parseListParam(param))
+	info, err := subConn.driver.Stat(path)
 	if err != nil {
-		conn.writeMessage(550, err.Error())
+		subConn.writeMessage(550, err.Error())
 		return
 	}
 	if !info.IsDir() {
-		conn.writeMessage(550, param+" is not a directory")
+		subConn.writeMessage(550, param+" is not a directory")
 		return
 	}
 
 	var files []FileInfo
-	err = conn.driver.ListDir(path, func(f FileInfo) error {
+	err = subConn.driver.ListDir(path, func(f FileInfo) error {
 		files = append(files, f)
 		return nil
 	})
 	if err != nil {
-		conn.writeMessage(550, err.Error())
+		subConn.writeMessage(550, err.Error())
 		return
 	}
-	stream, err := conn.getNewSendDataStream()
+	stream, err := subConn.connection.getNewSendDataStream()
 	if err != nil {
-		conn.writeMessage(425, "Can't open data stream.")
+		subConn.writeMessage(425, "Can't open data stream.")
 		return
 	}
-	conn.writeMessage(150, fmt.Sprintf("%d Opening ASCII mode data connection for file list", stream.StreamID()))
-	conn.sendOutofbandData(listFormatter(files).Short(), stream)
+	subConn.writeMessage(150, fmt.Sprintf("%d Opening ASCII mode data connection for file list", stream.StreamID()))
+	subConn.sendOutofbandData(listFormatter(files).Short(), stream)
 }
 
 // commandMdtm responds to the MDTM FTP command. It allows the client to
@@ -365,13 +365,13 @@ func (cmd commandMdtm) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandMdtm) Execute(conn *Conn, param string) {
-	path := conn.buildPath(param)
-	stat, err := conn.driver.Stat(path)
+func (cmd commandMdtm) Execute(subConn *SubConn, param string) {
+	path := subConn.buildPath(param)
+	stat, err := subConn.driver.Stat(path)
 	if err == nil {
-		conn.writeMessage(213, stat.ModTime().Format("20060102150405"))
+		subConn.writeMessage(213, stat.ModTime().Format("20060102150405"))
 	} else {
-		conn.writeMessage(450, "File not available")
+		subConn.writeMessage(450, "File not available")
 	}
 }
 
@@ -391,13 +391,13 @@ func (cmd commandMkd) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandMkd) Execute(conn *Conn, param string) {
-	path := conn.buildPath(param)
-	err := conn.driver.MakeDir(path)
+func (cmd commandMkd) Execute(subConn *SubConn, param string) {
+	path := subConn.buildPath(param)
+	err := subConn.driver.MakeDir(path)
 	if err == nil {
-		conn.writeMessage(257, "Directory created")
+		subConn.writeMessage(257, "Directory created")
 	} else {
-		conn.writeMessage(550, fmt.Sprint("Action not taken: ", err))
+		subConn.writeMessage(550, fmt.Sprint("Action not taken: ", err))
 	}
 }
 
@@ -421,11 +421,11 @@ func (cmd commandMode) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandMode) Execute(conn *Conn, param string) {
+func (cmd commandMode) Execute(subConn *SubConn, param string) {
 	if strings.ToUpper(param) == "S" {
-		conn.writeMessage(200, "OK")
+		subConn.writeMessage(200, "OK")
 	} else {
-		conn.writeMessage(504, "MODE is an obsolete command")
+		subConn.writeMessage(504, "MODE is an obsolete command")
 	}
 }
 
@@ -447,8 +447,8 @@ func (cmd commandNoop) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandNoop) Execute(conn *Conn, param string) {
-	conn.writeMessage(200, "OK")
+func (cmd commandNoop) Execute(subConn *SubConn, param string) {
+	subConn.writeMessage(200, "OK")
 }
 
 // commandPass respond to the PASS FTP command by asking the driver if the
@@ -467,19 +467,19 @@ func (cmd commandPass) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandPass) Execute(conn *Conn, param string) {
-	ok, err := conn.server.Auth.CheckPasswd(conn.reqUser, param)
+func (cmd commandPass) Execute(subConn *SubConn, param string) {
+	ok, err := subConn.connection.server.Auth.CheckPasswd(subConn.reqUser, param)
 	if err != nil {
-		conn.writeMessage(550, "Checking password error")
+		subConn.writeMessage(550, "Checking password error")
 		return
 	}
 
 	if ok {
-		conn.user = conn.reqUser
-		conn.reqUser = ""
-		conn.writeMessage(230, "Password ok, continue")
+		subConn.user = subConn.reqUser
+		subConn.reqUser = ""
+		subConn.writeMessage(230, "Password ok, continue")
 	} else {
-		conn.writeMessage(530, "Incorrect password, not logged in")
+		subConn.writeMessage(530, "Incorrect password, not logged in")
 	}
 }
 
@@ -500,8 +500,8 @@ func (cmd commandPwd) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandPwd) Execute(conn *Conn, param string) {
-	conn.writeMessage(257, "\""+conn.namePrefix+"\" is the current directory")
+func (cmd commandPwd) Execute(subConn *SubConn, param string) {
+	subConn.writeMessage(257, "\""+subConn.namePrefix+"\" is the current directory")
 }
 
 // CommandQuit responds to the QUIT FTP command. The client has requested the
@@ -520,9 +520,9 @@ func (cmd commandQuit) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandQuit) Execute(conn *Conn, param string) {
-	conn.writeMessage(221, "Goodbye")
-	conn.Close()
+func (cmd commandQuit) Execute(subConn *SubConn, param string) {
+	subConn.writeMessage(221, "Goodbye")
+	subConn.Close()
 }
 
 // commandRetr responds to the RETR FTP command. It allows the client to
@@ -541,27 +541,27 @@ func (cmd commandRetr) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRetr) Execute(conn *Conn, param string) {
-	path := conn.buildPath(param)
+func (cmd commandRetr) Execute(subConn *SubConn, param string) {
+	path := subConn.buildPath(param)
 	defer func() {
-		conn.lastFilePos = 0
-		conn.appendData = false
+		subConn.lastFilePos = 0
+		subConn.appendData = false
 	}()
-	bytes, data, err := conn.driver.GetFile(path, conn.lastFilePos)
+	bytes, data, err := subConn.driver.GetFile(path, subConn.lastFilePos)
 	if err == nil {
 		defer data.Close()
-		stream, err := conn.getNewSendDataStream()
+		stream, err := subConn.connection.getNewSendDataStream()
 		if err != nil {
-			conn.writeMessage(425, "Can't open data stream.")
+			subConn.writeMessage(425, "Can't open data stream.")
 			return
 		}
-		conn.writeMessage(150, fmt.Sprintf("%d Data transfer starting %v bytes", stream.StreamID(), bytes))
-		err = conn.sendOutofBandDataWriter(data, stream)
+		subConn.writeMessage(150, fmt.Sprintf("%d Data transfer starting %v bytes", stream.StreamID(), bytes))
+		err = subConn.sendOutofBandDataWriter(data, stream)
 		if err != nil {
-			conn.writeMessage(551, "Error reading file")
+			subConn.writeMessage(551, "Error reading file")
 		}
 	} else {
-		conn.writeMessage(551, "File not available")
+		subConn.writeMessage(551, "File not available")
 	}
 }
 
@@ -579,17 +579,17 @@ func (cmd commandRest) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRest) Execute(conn *Conn, param string) {
+func (cmd commandRest) Execute(subConn *SubConn, param string) {
 	var err error
-	conn.lastFilePos, err = strconv.ParseInt(param, 10, 64)
+	subConn.lastFilePos, err = strconv.ParseInt(param, 10, 64)
 	if err != nil {
-		conn.writeMessage(551, "File not available")
+		subConn.writeMessage(551, "File not available")
 		return
 	}
 
-	conn.appendData = true
+	subConn.appendData = true
 
-	conn.writeMessage(350, fmt.Sprint("Start transfer from ", conn.lastFilePos))
+	subConn.writeMessage(350, fmt.Sprint("Start transfer from ", subConn.lastFilePos))
 }
 
 // commandRnfr responds to the RNFR FTP command. It's the first of two commands
@@ -608,9 +608,9 @@ func (cmd commandRnfr) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRnfr) Execute(conn *Conn, param string) {
-	conn.renameFrom = conn.buildPath(param)
-	conn.writeMessage(350, "Requested file action pending further information.")
+func (cmd commandRnfr) Execute(subConn *SubConn, param string) {
+	subConn.renameFrom = subConn.buildPath(param)
+	subConn.writeMessage(350, "Requested file action pending further information.")
 }
 
 // cmdRnto responds to the RNTO FTP command. It's the second of two commands
@@ -629,17 +629,17 @@ func (cmd commandRnto) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRnto) Execute(conn *Conn, param string) {
-	toPath := conn.buildPath(param)
-	err := conn.driver.Rename(conn.renameFrom, toPath)
+func (cmd commandRnto) Execute(subConn *SubConn, param string) {
+	toPath := subConn.buildPath(param)
+	err := subConn.driver.Rename(subConn.renameFrom, toPath)
 	defer func() {
-		conn.renameFrom = ""
+		subConn.renameFrom = ""
 	}()
 
 	if err == nil {
-		conn.writeMessage(250, "File renamed")
+		subConn.writeMessage(250, "File renamed")
 	} else {
-		conn.writeMessage(550, fmt.Sprint("Action not taken: ", err))
+		subConn.writeMessage(550, fmt.Sprint("Action not taken: ", err))
 	}
 }
 
@@ -659,13 +659,13 @@ func (cmd commandRmd) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandRmd) Execute(conn *Conn, param string) {
-	path := conn.buildPath(param)
-	err := conn.driver.DeleteDir(path)
+func (cmd commandRmd) Execute(subConn *SubConn, param string) {
+	path := subConn.buildPath(param)
+	err := subConn.driver.DeleteDir(path)
 	if err == nil {
-		conn.writeMessage(250, "Directory deleted")
+		subConn.writeMessage(250, "Directory deleted")
 	} else {
-		conn.writeMessage(550, fmt.Sprint("Directory delete failed: ", err))
+		subConn.writeMessage(550, fmt.Sprint("Directory delete failed: ", err))
 	}
 }
 
@@ -685,14 +685,14 @@ func (cmd commandSize) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandSize) Execute(conn *Conn, param string) {
-	path := conn.buildPath(param)
-	stat, err := conn.driver.Stat(path)
+func (cmd commandSize) Execute(subConn *SubConn, param string) {
+	path := subConn.buildPath(param)
+	stat, err := subConn.driver.Stat(path)
 	if err != nil {
 		log.Printf("Size: error(%s)", err)
-		conn.writeMessage(450, fmt.Sprint("path", path, "not found"))
+		subConn.writeMessage(450, fmt.Sprint("path", path, "not found"))
 	} else {
-		conn.writeMessage(213, strconv.Itoa(int(stat.Size())))
+		subConn.writeMessage(213, strconv.Itoa(int(stat.Size())))
 	}
 }
 
@@ -712,34 +712,34 @@ func (cmd commandStor) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandStor) Execute(conn *Conn, param string) {
+func (cmd commandStor) Execute(subConn *SubConn, param string) {
 	params := strings.SplitN(param, " ", 2)
 	if len(params) != 2 {
-		conn.writeMessage(501, "Stream ID and path seperated by a blank needed.")
+		subConn.writeMessage(501, "Stream ID and path seperated by a blank needed.")
 	}
 	streamIDUint64, err := strconv.ParseInt(params[0], 10, 64)
 	if err != nil || streamIDUint64 < 0 || streamIDUint64%4 != 2 {
-		conn.writeMessage(501, "Stream ID has not a valid value for a unidirectional stream from the client.")
+		subConn.writeMessage(501, "Stream ID has not a valid value for a unidirectional stream from the client.")
 	}
 	streamID := quic.StreamID(streamIDUint64)
-	conn.writeMessage(150, "Data transfer starting")
-	stream, err := conn.getReceiveDataStream(streamID)
+	subConn.writeMessage(150, "Data transfer starting")
+	stream, err := subConn.connection.getReceiveDataStream(streamID)
 	if err != nil {
-		conn.writeMessage(425, "Can't open data stream.")
+		subConn.writeMessage(425, "Can't open data stream.")
 	}
 
-	targetPath := conn.buildPath(params[1])
+	targetPath := subConn.buildPath(params[1])
 
 	defer func() {
-		conn.appendData = false
+		subConn.appendData = false
 	}()
 
-	bytes, err := conn.driver.PutFile(targetPath, stream, conn.appendData)
+	bytes, err := subConn.driver.PutFile(targetPath, stream, subConn.appendData)
 	if err == nil {
 		msg := "OK, received " + strconv.Itoa(int(bytes)) + " bytes"
-		conn.writeMessage(226, msg)
+		subConn.writeMessage(226, msg)
 	} else {
-		conn.writeMessage(450, fmt.Sprint("error during transfer: ", err))
+		subConn.writeMessage(450, fmt.Sprint("error during transfer: ", err))
 	}
 }
 
@@ -766,11 +766,11 @@ func (cmd commandStru) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandStru) Execute(conn *Conn, param string) {
+func (cmd commandStru) Execute(subConn *SubConn, param string) {
 	if strings.ToUpper(param) == "F" {
-		conn.writeMessage(200, "OK")
+		subConn.writeMessage(200, "OK")
 	} else {
-		conn.writeMessage(504, "STRU is an obsolete command")
+		subConn.writeMessage(504, "STRU is an obsolete command")
 	}
 }
 
@@ -789,8 +789,8 @@ func (cmd commandSyst) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandSyst) Execute(conn *Conn, param string) {
-	conn.writeMessage(215, "UNIX Type: L8")
+func (cmd commandSyst) Execute(subConn *SubConn, param string) {
+	subConn.writeMessage(215, "UNIX Type: L8")
 }
 
 // commandType responds to the TYPE FTP command.
@@ -817,13 +817,13 @@ func (cmd commandType) RequireAuth() bool {
 	return true
 }
 
-func (cmd commandType) Execute(conn *Conn, param string) {
+func (cmd commandType) Execute(subConn *SubConn, param string) {
 	if strings.ToUpper(param) == "A" {
-		conn.writeMessage(200, "Type set to ASCII")
+		subConn.writeMessage(200, "Type set to ASCII")
 	} else if strings.ToUpper(param) == "I" {
-		conn.writeMessage(200, "Type set to binary")
+		subConn.writeMessage(200, "Type set to binary")
 	} else {
-		conn.writeMessage(500, "Invalid type")
+		subConn.writeMessage(500, "Invalid type")
 	}
 }
 
@@ -842,7 +842,7 @@ func (cmd commandUser) RequireAuth() bool {
 	return false
 }
 
-func (cmd commandUser) Execute(conn *Conn, param string) {
-	conn.reqUser = param
-	conn.writeMessage(331, "User name ok, password required")
+func (cmd commandUser) Execute(subConn *SubConn, param string) {
+	subConn.reqUser = param
+	subConn.writeMessage(331, "User name ok, password required")
 }

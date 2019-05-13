@@ -5,7 +5,6 @@
 package server
 
 import (
-	"bufio"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -137,13 +136,13 @@ func serverOptsWithDefaults(opts *ServerOpts) *ServerOpts {
 // probably look something like this:
 //
 //     factory := &MyDriverFactory{}
-//     server  := server.NewServer(&server.ServerOpts{ Factory: factory })
+//     server  := server.NewServer(&server.ServerOpts{ factory: factory })
 //
 // or:
 //
 //     factory := &MyDriverFactory{}
 //     opts    := &server.ServerOpts{
-//       Factory: factory,
+//       factory: factory,
 //       Port: 2000,
 //       Hostname: "127.0.0.1",
 //     }
@@ -164,25 +163,28 @@ func NewServer(opts *ServerOpts) *Server {
 // will handle all auth and persistence details.
 func (server *Server) newConn(quicSession quic.Session, driver Driver) (*Conn, error) {
 	c := new(Conn)
-	c.namePrefix = "/"
+	c.factory = server.Factory
 	c.session = quicSession
-	controlStream, err := quicSession.OpenStreamSync()
+	/*controlStream, err := quicSession.OpenStreamSync()
 	if err != nil {
 		return nil, err
 	}
 	c.controlStream = controlStream
 	c.controlReader = bufio.NewReader(controlStream)
-	c.controlWriter = bufio.NewWriter(controlStream)
+	c.controlWriter = bufio.NewWriter(controlStream)*/
 	c.dataReceiveStreams = map[quic.StreamID]quic.ReceiveStream{}
-	c.getStreamMutex = sync.Mutex{}
-	c.driver = driver
+	c.structAccessMutex = sync.Mutex{}
+	//c.driver = driver
 	c.auth = server.Auth
 	c.server = server
 	c.sessionID = newSessionID()
 	c.logger = server.logger
 	c.tlsConfig = server.tlsConfig
+	c.runningSubConn = 0
+	c.connRunningMutex = sync.Mutex{}
+	c.connRunningMutex.Lock()
 
-	driver.Init(c)
+	//driver.Init(c)
 	return c, nil
 }
 
