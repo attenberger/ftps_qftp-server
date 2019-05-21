@@ -175,11 +175,11 @@ func (server *Server) newConn(quicSession quic.Session, driver Driver) (*Conn, e
 	c.dataReceiveStreams = map[quic.StreamID]quic.ReceiveStream{}
 	c.structAccessMutex = sync.Mutex{}
 	//c.driver = driver
-	c.auth = server.Auth
+	//c.auth = server.Auth
 	c.server = server
 	c.sessionID = newSessionID()
 	c.logger = server.logger
-	c.tlsConfig = server.tlsConfig
+	//c.tlsConfig = server.tlsConfig
 	c.runningSubConn = 0
 	c.connRunningMutex = sync.Mutex{}
 	c.connRunningMutex.Lock()

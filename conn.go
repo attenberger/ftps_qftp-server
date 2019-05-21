@@ -8,7 +8,6 @@ import (
 	"bufio"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -26,29 +25,17 @@ type Conn struct {
 	// each client connection. This is a mandatory option.
 	factory DriverFactory
 
-	session quic.Session
-	/*controlStream      quic.Stream
-	controlReader      *bufio.Reader
-	controlWriter      *bufio.Writer*/
+	session            quic.Session
 	dataReceiveStreams map[quic.StreamID]quic.ReceiveStream
 	structAccessMutex  sync.Mutex
-	//dataConn      	DataSocket
-	//driver      Driver
-	auth      Auth
-	logger    Logger
-	server    *Server
-	tlsConfig *tls.Config
-	sessionID string
-	//renameFrom  string
-	//lastFilePos int64
-	//appendData  bool
-	closed           bool
-	connRunningMutex sync.Mutex
-	runningSubConn   int
+	logger             Logger
+	server             *Server
+	sessionID          string
+	closed             bool
+	connRunningMutex   sync.Mutex
+	runningSubConn     int
 }
 
-/*
- */
 func (conn *Conn) PublicIp() string {
 	return conn.server.PublicIp
 }
