@@ -13,12 +13,12 @@ import (
 	"net"
 	"strconv"
 	"sync"
-	"time"
 )
 
 const (
-	MaxStreamsPerSession = 3       // like default in vsftpd // but separate limit for uni- and bidirectional streams
-	MaxStreamFlowControl = 6291456 // like OpenSuse TCP /proc/sys/net/ipv4/tcp_rmem
+	MaxStreamsPerSession = 3      // like default in vsftpd // but separate limit for uni- and bidirectional streams
+	MaxStreamFlowControl = 212992 // like OpenSuse TCP /proc/sys/net/core/rmem_max
+	KeepAlive            = false
 )
 
 // Version returns the library version
@@ -210,8 +210,7 @@ func simpleQUICConfig() *quic.Config {
 	config.MaxIncomingStreams = MaxStreamsPerSession
 	config.MaxReceiveStreamFlowControlWindow = MaxStreamFlowControl
 	config.MaxReceiveConnectionFlowControlWindow = MaxStreamFlowControl * (MaxStreamsPerSession + 1) // + 1 buffer for controllstreams
-	config.KeepAlive = false
-	config.IdleTimeout = time.Second * 6000
+	config.KeepAlive = KeepAlive
 	return config
 }
 

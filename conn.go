@@ -31,9 +31,9 @@ type Conn struct {
 	logger             Logger
 	server             *Server
 	sessionID          string
-	closed             bool
-	connRunningMutex   sync.Mutex
-	runningSubConn     int
+	//closed             bool
+	connRunningMutex sync.Mutex
+	runningSubConn   int
 }
 
 func (conn *Conn) PublicIp() string {
@@ -134,7 +134,7 @@ func (conn *Conn) Serve() {
 // Close will manually close this connection, even if the client isn't ready.
 func (conn *Conn) Close() {
 	conn.session.Close()
-	conn.closed = true
+	//conn.closed = true
 }
 
 func (conn *Conn) ReportSubConnFinsihed() {
