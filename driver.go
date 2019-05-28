@@ -2,7 +2,7 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package server
+package ftp_server
 
 import "io"
 
@@ -16,8 +16,6 @@ type DriverFactory interface {
 // chosen persistence layer. graval will create a new instance of your
 // driver for each client that connects and delegate to it as required.
 type Driver interface {
-	// Init init
-	Init(*Conn)
 
 	// params  - a file path
 	// returns - a time indicating when the requested path was last modified

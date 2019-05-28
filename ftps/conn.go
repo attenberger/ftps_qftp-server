@@ -2,7 +2,7 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package server
+package ftps
 
 import (
 	"bufio"
@@ -11,6 +11,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"fmt"
+	"github.com/attenberger/ftps_qftp-server"
 	"io"
 	"log"
 	mrand "math/rand"
@@ -36,9 +37,9 @@ type Conn struct {
 	controlReader            *bufio.Reader
 	controlWriter            *bufio.Writer
 	dataConn                 DataSocket
-	driver                   Driver
-	auth                     Auth
-	logger                   Logger
+	driver                   ftp_server.Driver
+	auth                     ftp_server.Auth
+	logger                   ftp_server.Logger
 	server                   *Server
 	tlsConfig                *tls.Config
 	sessionID                string

@@ -2,10 +2,11 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package server
+package ftps
 
 import (
 	"fmt"
+	"github.com/attenberger/ftps_qftp-server"
 	"log"
 	"strconv"
 	"strings"
@@ -347,9 +348,9 @@ func (cmd commandList) Execute(conn *Conn, param string) {
 		conn.logger.Printf(conn.sessionID, "%s: no such file or directory.\n", path)
 		return
 	}
-	var files []FileInfo
+	var files []ftp_server.FileInfo
 	if info.IsDir() {
-		err = conn.driver.ListDir(path, func(f FileInfo) error {
+		err = conn.driver.ListDir(path, func(f ftp_server.FileInfo) error {
 			files = append(files, f)
 			return nil
 		})
@@ -362,7 +363,7 @@ func (cmd commandList) Execute(conn *Conn, param string) {
 	}
 
 	conn.writeMessage(150, "Opening ASCII mode data connection for file list")
-	conn.sendOutofbandData(listFormatter(files).Detailed())
+	conn.sendOutofbandData(ftp_server.ListFormatter(files).Detailed())
 }
 
 func parseListParam(param string) (path string) {
@@ -410,8 +411,8 @@ func (cmd commandNlst) Execute(conn *Conn, param string) {
 		return
 	}
 
-	var files []FileInfo
-	err = conn.driver.ListDir(path, func(f FileInfo) error {
+	var files []ftp_server.FileInfo
+	err = conn.driver.ListDir(path, func(f ftp_server.FileInfo) error {
 		files = append(files, f)
 		return nil
 	})
@@ -420,7 +421,7 @@ func (cmd commandNlst) Execute(conn *Conn, param string) {
 		return
 	}
 	conn.writeMessage(150, "Opening ASCII mode data connection for file list")
-	conn.sendOutofbandData(listFormatter(files).Short())
+	conn.sendOutofbandData(ftp_server.ListFormatter(files).Short())
 }
 
 // commandMdtm responds to the MDTM FTP command. It allows the client to

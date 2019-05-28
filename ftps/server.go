@@ -2,7 +2,7 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package server
+package ftps
 
 import (
 	"bufio"
@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/attenberger/ftps_qftp-server"
 	"net"
 	"strconv"
 )
@@ -23,9 +24,9 @@ func Version() string {
 type ServerOpts struct {
 	// The factory that will be used to create a new FTPDriver instance for
 	// each client connection. This is a mandatory option.
-	Factory DriverFactory
+	Factory ftp_server.DriverFactory
 
-	Auth Auth
+	Auth ftp_server.Auth
 
 	// Server Name, Default is Go Ftp Server
 	Name string
@@ -59,7 +60,7 @@ type ServerOpts struct {
 	WelcomeMessage string
 
 	// A logger implementation, if nil the StdLogger is used
-	Logger Logger
+	Logger ftp_server.Logger
 }
 
 // Server is the root of your FTP application. You should instantiate one
@@ -69,7 +70,7 @@ type ServerOpts struct {
 type Server struct {
 	*ServerOpts
 	listenTo  string
-	logger    Logger
+	logger    ftp_server.Logger
 	listener  net.Listener
 	tlsConfig *tls.Config
 	ctx       context.Context
@@ -115,7 +116,7 @@ func serverOptsWithDefaults(opts *ServerOpts) *ServerOpts {
 		newOpts.Auth = opts.Auth
 	}
 
-	newOpts.Logger = &StdLogger{}
+	newOpts.Logger = &ftp_server.StdLogger{}
 	if opts.Logger != nil {
 		newOpts.Logger = opts.Logger
 	}
@@ -161,7 +162,7 @@ func NewServer(opts *ServerOpts) *Server {
 // an active net.TCPConn. The TCP connection should already be open before
 // it is handed to this functions. driver is an instance of FTPDriver that
 // will handle all auth and persistence details.
-func (server *Server) newConn(tcpConn net.Conn, driver Driver) *Conn {
+func (server *Server) newConn(tcpConn net.Conn, driver ftp_server.Driver) *Conn {
 	c := new(Conn)
 	c.namePrefix = "/"
 	c.conn = tcpConn
@@ -176,7 +177,6 @@ func (server *Server) newConn(tcpConn net.Conn, driver Driver) *Conn {
 	c.protocolBufferSize = -1
 	c.dataConnectionProtection = DataConnectionClear
 
-	driver.Init(c)
 	return c
 }
 
