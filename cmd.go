@@ -6,7 +6,7 @@ package server
 
 import (
 	"fmt"
-	"github.com/attenberger/quic-go"
+	"github.com/lucas-clemente/quic-go"
 	"log"
 	"strconv"
 	"strings"

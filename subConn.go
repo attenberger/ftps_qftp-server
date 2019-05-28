@@ -3,7 +3,7 @@ package server
 import (
 	"bufio"
 	"fmt"
-	"github.com/attenberger/quic-go"
+	"github.com/lucas-clemente/quic-go"
 	"io"
 	"path/filepath"
 	"strconv"
@@ -29,8 +29,6 @@ type SubConn struct {
 
 func (subConn *SubConn) Serve() {
 	defer subConn.connection.ReportSubConnFinsihed()
-	// send welcome
-	//subConn.writeMessage(220, strconv.Itoa(MaxStreamsPerSession) + " " + defaultWelcomeMessage)
 	// read commands
 	for {
 		line, err := subConn.controlReader.ReadString('\n')

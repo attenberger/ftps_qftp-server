@@ -9,7 +9,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"github.com/attenberger/quic-go"
+	"github.com/lucas-clemente/quic-go"
 	"net"
 	"strconv"
 	"sync"
@@ -165,26 +165,14 @@ func (server *Server) newConn(quicSession quic.Session, driver Driver) (*Conn, e
 	c := new(Conn)
 	c.factory = server.Factory
 	c.session = quicSession
-	/*controlStream, err := quicSession.OpenStreamSync()
-	if err != nil {
-		return nil, err
-	}
-	c.controlStream = controlStream
-	c.controlReader = bufio.NewReader(controlStream)
-	c.controlWriter = bufio.NewWriter(controlStream)*/
 	c.dataReceiveStreams = map[quic.StreamID]quic.ReceiveStream{}
 	c.structAccessMutex = sync.Mutex{}
-	//c.driver = driver
-	//c.auth = server.Auth
 	c.server = server
 	c.sessionID = newSessionID()
 	c.logger = server.logger
-	//c.tlsConfig = server.tlsConfig
 	c.runningSubConn = 0
 	c.connRunningMutex = sync.Mutex{}
 	c.connRunningMutex.Lock()
-
-	//driver.Init(c)
 	return c, nil
 }
 
