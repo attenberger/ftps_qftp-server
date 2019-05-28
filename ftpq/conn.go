@@ -2,7 +2,7 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package server
+package ftpq
 
 import (
 	"bufio"
@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	server "github.com/attenberger/ftps_qftp-server"
 	"github.com/lucas-clemente/quic-go"
 	"io"
 	"sync"
@@ -23,12 +24,12 @@ const (
 type Conn struct {
 	// The factory that will be used to create a new FTPDriver instance for
 	// each client connection. This is a mandatory option.
-	factory DriverFactory
+	factory server.DriverFactory
 
 	session            quic.Session
 	dataReceiveStreams map[quic.StreamID]quic.ReceiveStream
 	structAccessMutex  sync.Mutex
-	logger             Logger
+	logger             server.Logger
 	server             *Server
 	sessionID          string
 	connRunningMutex   sync.Mutex
@@ -62,14 +63,14 @@ func newSessionID() string {
 // an QUIC-Stream. The QUIC connection should already be open before
 // it is handed to this functions. driver is an instance of FTPDriver that
 // will handle all auth and persistence details.
-func (conn *Conn) newSubConn(quicStream quic.Stream, driver Driver) *SubConn {
+func (conn *Conn) newSubConn(quicStream quic.Stream, driver server.Driver) *SubConn {
 	subC := new(SubConn)
 	subC.connection = conn
 	subC.controlStream = quicStream
 	subC.controlReader = bufio.NewReader(quicStream)
 	subC.controlWriter = bufio.NewWriter(quicStream)
 	subC.namePrefix = "/"
-	subC.logger = &StdLogger{}
+	subC.logger = &server.StdLogger{}
 	subC.sessionID = conn.sessionID
 	subC.driver = driver
 

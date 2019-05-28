@@ -10,7 +10,8 @@ import (
 	"flag"
 	"log"
 
-	"github.com/attenberger/ftps_qftp-server"
+	server "github.com/attenberger/ftps_qftp-server"
+	"github.com/attenberger/ftps_qftp-server/ftpq"
 	filedriver "github.com/attenberger/goftp-file-driver"
 )
 
@@ -44,7 +45,7 @@ func main() {
 		Perm:     filedriver.NewSimplePerm("user", "group"),
 	}
 
-	opts := &server.ServerOpts{
+	opts := &ftpq.ServerOpts{
 		Factory:  factory,
 		Port:     *port,
 		Hostname: *host,
@@ -55,7 +56,7 @@ func main() {
 
 	log.Printf("Starting ftp server on %v:%v", opts.Hostname, opts.Port)
 	log.Printf("Username %v, Password %v", *user, *pass)
-	server := server.NewServer(opts)
+	server := ftpq.NewServer(opts)
 	err := server.ListenAndServe()
 	if err != nil {
 		log.Fatal("Error starting server:", err)

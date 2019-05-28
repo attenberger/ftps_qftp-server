@@ -2,13 +2,14 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package server
+package ftpq
 
 import (
 	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
+	server "github.com/attenberger/ftps_qftp-server"
 	"github.com/lucas-clemente/quic-go"
 	"net"
 	"strconv"
@@ -30,9 +31,9 @@ func Version() string {
 type ServerOpts struct {
 	// The factory that will be used to create a new FTPDriver instance for
 	// each client connection. This is a mandatory option.
-	Factory DriverFactory
+	Factory server.DriverFactory
 
-	Auth Auth
+	Auth server.Auth
 
 	// Server Name, Default is Go Ftp Server
 	Name string
@@ -60,7 +61,7 @@ type ServerOpts struct {
 	WelcomeMessage string
 
 	// A logger implementation, if nil the StdLogger is used
-	Logger Logger
+	Logger server.Logger
 }
 
 // Server is the root of your FTP application. You should instantiate one
@@ -70,7 +71,7 @@ type ServerOpts struct {
 type Server struct {
 	*ServerOpts
 	listenTo   string
-	logger     Logger
+	logger     server.Logger
 	listener   quic.Listener
 	tlsConfig  *tls.Config
 	quicConfig *quic.Config
@@ -117,7 +118,7 @@ func serverOptsWithDefaults(opts *ServerOpts) *ServerOpts {
 		newOpts.Auth = opts.Auth
 	}
 
-	newOpts.Logger = &StdLogger{}
+	newOpts.Logger = &server.StdLogger{}
 	if opts.Logger != nil {
 		newOpts.Logger = opts.Logger
 	}
@@ -161,7 +162,7 @@ func NewServer(opts *ServerOpts) *Server {
 // an active net.TCPConn. The TCP connection should already be open before
 // it is handed to this functions. driver is an instance of FTPDriver that
 // will handle all auth and persistence details.
-func (server *Server) newConn(quicSession quic.Session, driver Driver) (*Conn, error) {
+func (server *Server) newConn(quicSession quic.Session, driver server.Driver) (*Conn, error) {
 	c := new(Conn)
 	c.factory = server.Factory
 	c.session = quicSession

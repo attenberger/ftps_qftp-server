@@ -2,10 +2,11 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package server
+package ftpq
 
 import (
 	"fmt"
+	server "github.com/attenberger/ftps_qftp-server"
 	"github.com/lucas-clemente/quic-go"
 	"log"
 	"strconv"
@@ -264,9 +265,9 @@ func (cmd commandList) Execute(subConn *SubConn, param string) {
 		subConn.logger.Printf(subConn.sessionID+":"+strconv.FormatUint(uint64(subConn.controlStream.StreamID()), 10), "%s: no such file or directory.\n", path)
 		return
 	}
-	var files []FileInfo
+	var files []server.FileInfo
 	if info.IsDir() {
-		err = subConn.driver.ListDir(path, func(f FileInfo) error {
+		err = subConn.driver.ListDir(path, func(f server.FileInfo) error {
 			files = append(files, f)
 			return nil
 		})
@@ -283,7 +284,7 @@ func (cmd commandList) Execute(subConn *SubConn, param string) {
 		return
 	}
 	subConn.writeMessage(150, fmt.Sprintf("%d Opening ASCII mode data connection for file list", stream.StreamID()))
-	subConn.sendOutofbandData(listFormatter(files).Detailed(), stream)
+	subConn.sendOutofbandData(server.ListFormatter(files).Detailed(), stream)
 }
 
 func parseListParam(param string) (path string) {
@@ -331,8 +332,8 @@ func (cmd commandNlst) Execute(subConn *SubConn, param string) {
 		return
 	}
 
-	var files []FileInfo
-	err = subConn.driver.ListDir(path, func(f FileInfo) error {
+	var files []server.FileInfo
+	err = subConn.driver.ListDir(path, func(f server.FileInfo) error {
 		files = append(files, f)
 		return nil
 	})
@@ -346,7 +347,7 @@ func (cmd commandNlst) Execute(subConn *SubConn, param string) {
 		return
 	}
 	subConn.writeMessage(150, fmt.Sprintf("%d Opening ASCII mode data connection for file list", stream.StreamID()))
-	subConn.sendOutofbandData(listFormatter(files).Short(), stream)
+	subConn.sendOutofbandData(server.ListFormatter(files).Short(), stream)
 }
 
 // commandMdtm responds to the MDTM FTP command. It allows the client to

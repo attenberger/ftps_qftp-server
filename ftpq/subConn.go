@@ -1,8 +1,9 @@
-package server
+package ftpq
 
 import (
 	"bufio"
 	"fmt"
+	server "github.com/attenberger/ftps_qftp-server"
 	"github.com/lucas-clemente/quic-go"
 	"io"
 	"path/filepath"
@@ -15,8 +16,8 @@ type SubConn struct {
 	controlStream quic.Stream
 	controlReader *bufio.Reader
 	controlWriter *bufio.Writer
-	logger        Logger
-	driver        Driver
+	logger        server.Logger
+	driver        server.Driver
 	sessionID     string
 	reqUser       string
 	user          string
