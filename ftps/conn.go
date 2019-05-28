@@ -2,7 +2,7 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package server
+package ftps
 
 import (
 	"bufio"
@@ -11,6 +11,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"fmt"
+	"github.com/attenberger/ftps_qftp-server"
 	"io"
 	"log"
 	mrand "math/rand"
@@ -24,25 +25,34 @@ const (
 	defaultWelcomeMessage = "Welcome to the Go FTP Server"
 )
 
+type dataConnectionProtectionLevel byte
+
+const (
+	DataConnectionClear     = 'C'
+	DataConnectionProtected = 'P'
+)
+
 type Conn struct {
-	conn          net.Conn
-	controlReader *bufio.Reader
-	controlWriter *bufio.Writer
-	dataConn      DataSocket
-	driver        Driver
-	auth          Auth
-	logger        Logger
-	server        *Server
-	tlsConfig     *tls.Config
-	sessionID     string
-	namePrefix    string
-	reqUser       string
-	user          string
-	renameFrom    string
-	lastFilePos   int64
-	appendData    bool
-	closed        bool
-	tls           bool
+	conn                     net.Conn
+	controlReader            *bufio.Reader
+	controlWriter            *bufio.Writer
+	dataConn                 DataSocket
+	driver                   ftp_server.Driver
+	auth                     ftp_server.Auth
+	logger                   ftp_server.Logger
+	server                   *Server
+	tlsConfig                *tls.Config
+	sessionID                string
+	namePrefix               string
+	reqUser                  string
+	user                     string
+	renameFrom               string
+	lastFilePos              int64
+	appendData               bool
+	closed                   bool
+	tls                      bool
+	protocolBufferSize       int
+	dataConnectionProtection dataConnectionProtectionLevel
 }
 
 func (conn *Conn) LoginUser() string {
@@ -154,7 +164,7 @@ func (conn *Conn) receiveLine(line string) {
 	conn.logger.PrintCommand(conn.sessionID, command, param)
 	cmdObj := commands[strings.ToUpper(command)]
 	if cmdObj == nil {
-		conn.writeMessage(500, "Command not found")
+		conn.writeMessage(502, "Command not found")
 		return
 	}
 	if cmdObj.RequireParam() && param == "" {

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package server
+package ftp_server
 
 import (
 	"bytes"
@@ -11,11 +11,11 @@ import (
 	"strings"
 )
 
-type listFormatter []FileInfo
+type ListFormatter []FileInfo
 
 // Short returns a string that lists the collection of files by name only,
 // one per line
-func (formatter listFormatter) Short() []byte {
+func (formatter ListFormatter) Short() []byte {
 	var buf bytes.Buffer
 	for _, file := range formatter {
 		fmt.Fprintf(&buf, "%s\r\n", file.Name())
@@ -25,7 +25,7 @@ func (formatter listFormatter) Short() []byte {
 
 // Detailed returns a string that lists the collection of files with extra
 // detail, one per line
-func (formatter listFormatter) Detailed() []byte {
+func (formatter ListFormatter) Detailed() []byte {
 	var buf bytes.Buffer
 	for _, file := range formatter {
 		fmt.Fprintf(&buf, file.Mode().String())

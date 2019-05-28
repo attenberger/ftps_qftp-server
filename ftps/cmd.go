@@ -2,10 +2,11 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package server
+package ftps
 
 import (
 	"fmt"
+	"github.com/attenberger/ftps_qftp-server"
 	"log"
 	"strconv"
 	"strings"
@@ -308,7 +309,7 @@ func (cmd commandEpsv) Execute(conn *Conn, param string) {
 		return
 	}
 
-	socket, err := newPassiveSocket(addr[:lastIdx], conn.PassivePort, conn.logger, conn.sessionID, conn.tlsConfig)
+	socket, err := newPassiveSocket(addr[:lastIdx], conn.PassivePort, conn.logger, conn.sessionID, conn.dataConnectionProtection == DataConnectionProtected, conn.tlsConfig)
 	if err != nil {
 		log.Println(err)
 		conn.writeMessage(425, "Data connection failed")
@@ -347,9 +348,9 @@ func (cmd commandList) Execute(conn *Conn, param string) {
 		conn.logger.Printf(conn.sessionID, "%s: no such file or directory.\n", path)
 		return
 	}
-	var files []FileInfo
+	var files []ftp_server.FileInfo
 	if info.IsDir() {
-		err = conn.driver.ListDir(path, func(f FileInfo) error {
+		err = conn.driver.ListDir(path, func(f ftp_server.FileInfo) error {
 			files = append(files, f)
 			return nil
 		})
@@ -362,7 +363,7 @@ func (cmd commandList) Execute(conn *Conn, param string) {
 	}
 
 	conn.writeMessage(150, "Opening ASCII mode data connection for file list")
-	conn.sendOutofbandData(listFormatter(files).Detailed())
+	conn.sendOutofbandData(ftp_server.ListFormatter(files).Detailed())
 }
 
 func parseListParam(param string) (path string) {
@@ -410,8 +411,8 @@ func (cmd commandNlst) Execute(conn *Conn, param string) {
 		return
 	}
 
-	var files []FileInfo
-	err = conn.driver.ListDir(path, func(f FileInfo) error {
+	var files []ftp_server.FileInfo
+	err = conn.driver.ListDir(path, func(f ftp_server.FileInfo) error {
 		files = append(files, f)
 		return nil
 	})
@@ -420,7 +421,7 @@ func (cmd commandNlst) Execute(conn *Conn, param string) {
 		return
 	}
 	conn.writeMessage(150, "Opening ASCII mode data connection for file list")
-	conn.sendOutofbandData(listFormatter(files).Short())
+	conn.sendOutofbandData(ftp_server.ListFormatter(files).Short())
 }
 
 // commandMdtm responds to the MDTM FTP command. It allows the client to
@@ -582,7 +583,7 @@ func (cmd commandPasv) Execute(conn *Conn, param string) {
 		conn.writeMessage(425, "Data connection failed")
 		return
 	}
-	socket, err := newPassiveSocket(listenIP[:lastIdx], conn.PassivePort, conn.logger, conn.sessionID, conn.tlsConfig)
+	socket, err := newPassiveSocket(listenIP[:lastIdx], conn.PassivePort, conn.logger, conn.sessionID, conn.dataConnectionProtection == DataConnectionProtected, conn.tlsConfig)
 	if err != nil {
 		conn.writeMessage(425, "Data connection failed")
 		return
@@ -924,6 +925,7 @@ func (cmd commandPbsz) RequireAuth() bool {
 
 func (cmd commandPbsz) Execute(conn *Conn, param string) {
 	if conn.tls && param == "0" {
+		conn.protocolBufferSize = 0
 		conn.writeMessage(200, "OK")
 	} else {
 		conn.writeMessage(550, "Action not taken")
@@ -945,7 +947,10 @@ func (cmd commandProt) RequireAuth() bool {
 }
 
 func (cmd commandProt) Execute(conn *Conn, param string) {
-	if conn.tls && param == "P" {
+	if conn.protocolBufferSize < 0 {
+		conn.writeMessage(503, "Need protocol buffer size")
+	} else if conn.tls && param == "P" {
+		conn.dataConnectionProtection = DataConnectionProtected
 		conn.writeMessage(200, "OK")
 	} else if conn.tls {
 		conn.writeMessage(536, "Only P level is supported")
@@ -1133,9 +1138,5 @@ func (cmd commandUser) RequireAuth() bool {
 
 func (cmd commandUser) Execute(conn *Conn, param string) {
 	conn.reqUser = param
-	if conn.tls || conn.tlsConfig == nil {
-		conn.writeMessage(331, "User name ok, password required")
-	} else {
-		conn.writeMessage(534, "Unsecured login not allowed. AUTH TLS required")
-	}
+	conn.writeMessage(331, "User name ok, password required")
 }

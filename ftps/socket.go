@@ -2,10 +2,11 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package server
+package ftps
 
 import (
 	"crypto/tls"
+	"github.com/attenberger/ftps_qftp-server"
 	"io"
 	"net"
 	"os"
@@ -41,10 +42,10 @@ type ftpActiveSocket struct {
 	conn   *net.TCPConn
 	host   string
 	port   int
-	logger Logger
+	logger ftp_server.Logger
 }
 
-func newActiveSocket(remote string, port int, logger Logger, sessionID string) (DataSocket, error) {
+func newActiveSocket(remote string, port int, logger ftp_server.Logger, sessionID string) (DataSocket, error) {
 	connectTo := net.JoinHostPort(remote, strconv.Itoa(port))
 
 	logger.Print(sessionID, "Opening active data connection to "+connectTo)
@@ -102,9 +103,10 @@ type ftpPassiveSocket struct {
 	host      string
 	ingress   chan []byte
 	egress    chan []byte
-	logger    Logger
+	logger    ftp_server.Logger
 	lock      sync.Mutex // protects conn and err
 	err       error
+	secure    bool
 	tlsConfig *tls.Config
 }
 
@@ -134,12 +136,13 @@ func isErrorAddressAlreadyInUse(err error) bool {
 	return false
 }
 
-func newPassiveSocket(host string, port func() int, logger Logger, sessionID string, tlsConfig *tls.Config) (DataSocket, error) {
+func newPassiveSocket(host string, port func() int, logger ftp_server.Logger, sessionID string, secure bool, tlsConfig *tls.Config) (DataSocket, error) {
 	socket := new(ftpPassiveSocket)
 	socket.ingress = make(chan []byte)
 	socket.egress = make(chan []byte)
 	socket.logger = logger
 	socket.host = host
+	socket.secure = secure
 	socket.tlsConfig = tlsConfig
 	const retries = 10
 	var err error
@@ -235,7 +238,7 @@ func (socket *ftpPassiveSocket) GoListenAndServe(sessionID string) (err error) {
 	}
 
 	socket.port = port
-	if socket.tlsConfig != nil {
+	if socket.secure {
 		listener = tls.NewListener(listener, socket.tlsConfig)
 	}
 
