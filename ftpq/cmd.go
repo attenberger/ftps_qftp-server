@@ -523,7 +523,18 @@ func (cmd commandQuit) RequireAuth() bool {
 
 func (cmd commandQuit) Execute(subConn *SubConn, param string) {
 	subConn.writeMessage(221, "Goodbye")
+	cmd.clearReader(subConn)
 	subConn.Close()
+}
+
+func (cmd commandQuit) clearReader(subConn *SubConn) {
+	for {
+		buf := make([]byte, 1024)
+		_, err := subConn.controlReader.Read(buf)
+		if err != nil {
+			return
+		}
+	}
 }
 
 // commandRetr responds to the RETR FTP command. It allows the client to
