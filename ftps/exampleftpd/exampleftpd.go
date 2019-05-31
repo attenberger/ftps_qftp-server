@@ -54,6 +54,7 @@ func main() {
 		KeyFile:      *key,
 		CertFile:     *cert,
 		ExplicitFTPS: true,
+		PassivePorts: "32500-33000",
 	}
 
 	log.Printf("Starting ftp server on %v:%v", opts.Hostname, opts.Port)
