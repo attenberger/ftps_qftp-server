@@ -172,8 +172,6 @@ func (server *Server) newConn(quicSession quic.Session, driver server.Driver) (*
 	c.sessionID = newSessionID()
 	c.logger = server.logger
 	c.runningSubConn = 0
-	c.connRunningMutex = sync.Mutex{}
-	c.connRunningMutex.Lock()
 	return c, nil
 }
 

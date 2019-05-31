@@ -32,7 +32,6 @@ type Conn struct {
 	logger             server.Logger
 	server             *Server
 	sessionID          string
-	connRunningMutex   sync.Mutex
 	runningSubConn     int
 }
 

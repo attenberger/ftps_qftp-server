@@ -29,7 +29,6 @@ type SubConn struct {
 }
 
 func (subConn *SubConn) Serve() {
-	defer subConn.connection.ReportSubConnFinsihed()
 	// read commands
 	for {
 		line, err := subConn.controlReader.ReadString('\n')
@@ -47,7 +46,6 @@ func (subConn *SubConn) Serve() {
 			break
 		}
 	}
-	subConn.Close()
 	subConn.logger.Print(subConn.sessionID+":"+strconv.FormatUint(uint64(subConn.controlStream.StreamID()), 10), "Stream Terminated")
 }
 
