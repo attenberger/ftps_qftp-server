@@ -11,6 +11,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Command interface {
@@ -24,37 +25,38 @@ type commandMap map[string]Command
 
 var (
 	commands = commandMap{
-		"ALLO": commandAllo{},
-		"APPE": commandAppe{},
-		"CDUP": commandCdup{},
-		"CWD":  commandCwd{},
-		"DELE": commandDele{},
-		"FEAT": commandFeat{},
-		"LIST": commandList{},
-		"NLST": commandNlst{},
-		"MDTM": commandMdtm{},
-		"MKD":  commandMkd{},
-		"MODE": commandMode{},
-		"NOOP": commandNoop{},
-		"OPTS": commandOpts{},
-		"PASS": commandPass{},
-		"PWD":  commandPwd{},
-		"QUIT": commandQuit{},
-		"RETR": commandRetr{},
-		"REST": commandRest{},
-		"RNFR": commandRnfr{},
-		"RNTO": commandRnto{},
-		"RMD":  commandRmd{},
-		"SIZE": commandSize{},
-		"STOR": commandStor{},
-		"STRU": commandStru{},
-		"SYST": commandSyst{},
-		"TYPE": commandType{},
-		"USER": commandUser{},
-		"XCUP": commandCdup{},
-		"XCWD": commandCwd{},
-		"XPWD": commandPwd{},
-		"XRMD": commandRmd{},
+		"ALLO":  commandAllo{},
+		"APPE":  commandAppe{},
+		"CDUP":  commandCdup{},
+		"CWD":   commandCwd{},
+		"DELE":  commandDele{},
+		"FEAT":  commandFeat{},
+		"HELLO": commandHello{},
+		"LIST":  commandList{},
+		"NLST":  commandNlst{},
+		"MDTM":  commandMdtm{},
+		"MKD":   commandMkd{},
+		"MODE":  commandMode{},
+		"NOOP":  commandNoop{},
+		"OPTS":  commandOpts{},
+		"PASS":  commandPass{},
+		"PWD":   commandPwd{},
+		"QUIT":  commandQuit{},
+		"RETR":  commandRetr{},
+		"REST":  commandRest{},
+		"RNFR":  commandRnfr{},
+		"RNTO":  commandRnto{},
+		"RMD":   commandRmd{},
+		"SIZE":  commandSize{},
+		"STOR":  commandStor{},
+		"STRU":  commandStru{},
+		"SYST":  commandSyst{},
+		"TYPE":  commandType{},
+		"USER":  commandUser{},
+		"XCUP":  commandCdup{},
+		"XCWD":  commandCwd{},
+		"XPWD":  commandPwd{},
+		"XRMD":  commandRmd{},
 	}
 )
 
@@ -235,6 +237,26 @@ func (cmd commandDele) Execute(subConn *SubConn, param string) {
 	} else {
 		subConn.writeMessage(550, fmt.Sprint("File delete failed: ", err))
 	}
+}
+
+// commandHello responds with the greeting message of the server.
+type commandHello struct{}
+
+func (cmd commandHello) IsExtend() bool {
+	return false
+}
+
+func (cmd commandHello) RequireParam() bool {
+	return false
+}
+
+func (cmd commandHello) RequireAuth() bool {
+	return false
+}
+
+func (cmd commandHello) Execute(subConn *SubConn, param string) {
+	// send welcome
+	subConn.writeMessage(220, subConn.connection.server.WelcomeMessage)
 }
 
 // commandList responds to the LIST FTP command. It allows the client to retreive
@@ -523,8 +545,10 @@ func (cmd commandQuit) RequireAuth() bool {
 
 func (cmd commandQuit) Execute(subConn *SubConn, param string) {
 	subConn.writeMessage(221, "Goodbye")
+	subConn.controlStream.SetReadDeadline(time.Now())
 	subConn.controlReader.ReadLine() // get EOF to clear quic-go streamnumberflowcontrol
 	subConn.Close()
+	subConn.connection.ReportSubConnFinsihed()
 }
 
 // commandRetr responds to the RETR FTP command. It allows the client to
